@@ -60,7 +60,7 @@
   .who h2 { margin:0; font-family:var(--display); font-size:20px; display:flex; align-items:center; gap:8px; cursor:pointer; overflow-wrap:anywhere; }
   .who h2 i { flex:0 0 12px; height:12px; border-radius:50%; background:var(--acc); }
   .who h2 small { font-family:Inter,sans-serif; font-size:12px; font-weight:700; color:var(--atk); }
-  .stats { display:flex; gap:6px; margin-top:4px; flex-wrap:wrap; }
+  .stats { display:flex; gap:6px; flex-wrap:wrap; flex-basis:100%; }
   .st { font-size:13px; padding:2px 10px; min-height:0; border-radius:999px; background:var(--panel2); border:1px solid var(--line); white-space:nowrap; }
   .st b { font-family:var(--display); }
   .st.a { border-color:var(--atk); color:var(--atk); }
@@ -215,7 +215,7 @@
   .ept { display:flex; align-items:center; gap:3px; font-weight:700; }
   .ept input { width:52px; text-align:center; }
   .erow .eKw, .erow .eQual { flex:1 1 130px; width:auto; }
-  .erow .eWho, .erow .eWhen { flex:1 1 150px; width:auto; }
+  .erow .eWho, .erow .eWhen, .erow .ePer { flex:1 1 150px; width:auto; }
   .dlg.spell .eWhen { display:none; }
   .eDel { min-height:30px; padding:2px 9px; color:var(--down); }
   .fxhint { font-size:12.5px; color:var(--muted); margin:2px 0 8px; }
@@ -280,6 +280,7 @@
           <div id="fCountWrap"><label>How many</label><input id="fCount" type="number" min="1" value="1"></div>
         </div>
         <label>Keywords / notes</label><input id="fKw" type="text" placeholder="flying, deathtouch…">
+        <label>Power/toughness also counts (for * cards)</label><select id="fStar"></select>
       </div>
       <div id="fAttach" class="three" hidden>
         <div><label>Kind</label><select id="fKind">
@@ -315,12 +316,14 @@ const COLORS = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
 const uid = () => Math.random().toString(36).slice(2, 9);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const $ = id => document.getElementById(id);
-const newPlayer = i => ({ id: uid(), name: 'Player ' + (i + 1), life: 40, cmdr: {}, creatures: [], perms: [], eot: [], color: ACC[i % ACC.length] });
+// res: counts the player keeps by hand (lands, hand, graveyard, artifact tokens) and untracked artifacts/enchantments
+const RES0 = { land: 0, hand: 0, grave: 0, treasure: 0, clue: 0, food: 0, xart: 0, xench: 0 };
+const newPlayer = i => ({ id: uid(), name: 'Player ' + (i + 1), life: 40, cmdr: {}, creatures: [], perms: [], eot: [], res: { ...RES0 }, color: ACC[i % ACC.length] });
 
 function fresh() { return { active: 0, view: 0, cmdLife: true, players: [0, 1, 2, 3].map(newPlayer) }; }
 let S;
 try { S = JSON.parse(localStorage.getItem(KEY)) || fresh(); } catch { S = fresh(); }
-S.players.forEach((p, i) => { p.color = p.color || ACC[i % ACC.length]; p.perms = p.perms || []; p.eot = p.eot || []; });
+S.players.forEach((p, i) => { p.color = p.color || ACC[i % ACC.length]; p.perms = p.perms || []; p.eot = p.eot || []; p.res = { ...RES0, ...p.res }; });
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} };
 
 const num = x => (x > 0 ? '+' + x : String(x));
@@ -338,6 +341,49 @@ let CALC = {}, EFFS = [];
 const xval = (v, x) => (v === 'X' ? x : v === '-X' ? -x : v);
 const fmt = v => (typeof v === 'string' ? (v === 'X' ? '+X' : v) : v < 0 ? String(v) : '+' + v);
 const creatureCount = p => sum(p.creatures, c => c.count);
+// what a "for each ..." / "X is the number of ..." can count, per player
+const COUNTS = [['creature', 'creature you control'], ['artifact', 'artifact you control'], ['enchantment', 'enchantment you control'],
+  ['equipment', 'Equipment you control'], ['land', 'land you control'], ['hand', 'card in your hand'], ['grave', 'card in your graveyard'],
+  ['attacking', 'attacking creature']];
+const countLabel = k => (COUNTS.find(x => x[0] === k) || [k, k])[1];
+function countOf(p, kind) {
+  const typed = re => sum(p.creatures.filter(c => re.test(c.type || '')), c => c.count) + p.perms.filter(x => re.test(x.type || '')).length;
+  const r = p.res;
+  switch (kind) {
+    case 'creature': case 'creatures': return creatureCount(p);
+    case 'attacking': return sum(p.creatures, c => c.attacking);
+    case 'artifact': return typed(/\bArtifact\b/) + r.treasure + r.clue + r.food + r.xart;
+    case 'enchantment': return typed(/\bEnchantment\b/) + r.xench;
+    case 'equipment': return p.perms.filter(x => x.kind === 'equipment' || /\bEquipment\b/.test(x.type || '')).length;
+    case 'land': return r.land;
+    case 'hand': return r.hand;
+    case 'grave': return r.grave;
+  }
+  return 0;
+}
+// reads what a phrase like "artifact you control" or "other creatures you control" counts: [kind, how many to leave out]
+function countKind(t) {
+  t = (t || '').toLowerCase();
+  if (/\battacking creatures?\b/.test(t)) return ['attacking', 0];
+  if (/\bother creatures? you control/.test(t)) return ['creature', 1];
+  if (/\bcreatures? you control/.test(t)) return ['creature', 0];
+  if (/\bartifacts? you control/.test(t)) return ['artifact', 0];
+  if (/\benchantments? you control/.test(t)) return ['enchantment', 0];
+  if (/\bequipment you control/.test(t)) return ['equipment', 0];
+  if (/\blands? you control/.test(t)) return ['land', 0];
+  if (/\bcards? in your hand/.test(t)) return ['hand', 0];
+  if (/\bcards? in your graveyard/.test(t)) return ['grave', 0];
+  return null;
+}
+// an effect row's current value for its controller p
+function rowVal(r, p) {
+  if (r.per) { const n = Math.max(0, countOf(p, r.per) - (r.perMinus || 0)); return { pw: (+r.pw || 0) * n, tg: (+r.tg || 0) * n, n }; }
+  if (typeof r.pw === 'string' || typeof r.tg === 'string') {
+    const n = !r.x || r.x === 'ask' ? 0 : countOf(p, r.x);
+    return { pw: xval(r.pw, n), tg: xval(r.tg, n), n };
+  }
+  return { pw: r.pw, tg: r.tg };
+}
 
 function qualMatch(c, qual) {
   const words = (qual || '').toLowerCase().split(/[\s,]+/).filter(w => w && !['creature', 'creatures', 'and', 'you', 'control'].includes(w));
@@ -358,21 +404,25 @@ function qualMatch(c, qual) {
 function recalc() {
   EFFS = [];
   S.players.forEach(q => {
-    const cnt = creatureCount(q);
     [...q.creatures, ...q.perms].forEach(src => (src.rows || []).forEach(r => {
       if (r.when !== 'static' || r.on === false) return;
       // "Equipped/enchanted creature gets ..." only counts while it's attached to something
       if (r.target === 'self' && !src.host) return;
-      EFFS.push({ ...r, pw: xval(r.pw, cnt), tg: xval(r.tg, cnt), owner: q, srcId: src.id, name: src.name, static: true,
-                  hostId: r.target === 'self' ? src.host : null });
+      if (r.target === 'itself' && src.bp == null) return; // only a creature can buff itself
+      const v = rowVal(r, q);
+      EFFS.push({ ...r, pw: v.pw, tg: v.tg, n: v.n, owner: q, srcId: src.id, name: src.name, static: true,
+                  hostId: r.target === 'self' ? src.host : r.target === 'itself' ? src.id : null });
     }));
     q.eot.forEach(e => EFFS.push({ ...e, owner: q, static: false }));
   });
   CALC = {};
   S.players.forEach(p => p.creatures.forEach(c => {
-    const r = { P: c.bp + c.counters + c.tp, T: c.bt + c.counters + c.tt, sp: 0, st: 0, ep: c.tp, et: c.tt, aP: 0, aT: 0, kw: new Set(), rows: [] };
+    // "*" power/toughness that counts something (Crusader of Odric, Multani): the count is part of the base
+    const star = c.star && c.star.kind ? countOf(p, c.star.kind) : 0;
+    const bP = c.bp + (c.star && c.star.onP ? star : 0), bT = c.bt + (c.star && c.star.onT ? star : 0);
+    const r = { bP, bT, star, P: bP + c.counters + c.tp, T: bT + c.counters + c.tt, sp: 0, st: 0, ep: c.tp, et: c.tt, aP: 0, aT: 0, kw: new Set(), rows: [] };
     EFFS.forEach(e => {
-      if (e.target === 'self') { if (e.hostId !== c.id) return; }
+      if (e.target === 'self' || e.target === 'itself') { if (e.hostId !== c.id) return; }
       else if (e.owner === p ? e.target === 'opps' : e.target === 'mine') return;
       if (e.other && e.srcId === c.id) return;
       if (!qualMatch(c, e.qual)) return;
@@ -380,7 +430,8 @@ function recalc() {
       if (e.static) { r.sp += e.pw; r.st += e.tg; } else { r.ep += e.pw; r.et += e.tg; }
       if (/\battacking\b/i.test(e.qual || '')) { r.aP += e.pw; r.aT += e.tg; }
       kwSplit(e.kw).forEach(k => r.kw.add(k));
-      r.rows.push({ name: e.name, p: e.pw, t: e.tg, eot: !e.static, from: e.owner !== p ? e.owner.name : '' });
+      r.rows.push({ name: e.name, p: e.pw, t: e.tg, eot: !e.static, from: e.owner !== p ? e.owner.name : '',
+                    per: e.per && e.static ? `${e.n} × ${countLabel(e.per)}` : '' });
     });
     CALC[c.id] = r;
   }));
@@ -390,12 +441,15 @@ const tou = c => (CALC[c.id] ? CALC[c.id].T : c.bt + c.counters + c.tt);
 const granted = c => (CALC[c.id] ? [...CALC[c.id].kw].filter(k => !kws(c).includes(k)) : []);
 const has = (c, k) => kws(c).includes(k) || granted(c).includes(k);
 const ptClass = c => {
-  const P = pow(c), T = tou(c), up = P > c.bp || T > c.bt, down = P < c.bp || T < c.bt;
+  const k = CALC[c.id] || { bP: c.bp, bT: c.bt };
+  const P = pow(c), T = tou(c), up = P > k.bP || T > k.bT, down = P < k.bP || T < k.bT;
   return up && !down ? 'up' : down && !up ? 'down' : '';
 };
 
 // Reads the standard anthem / lord / mass pump wordings out of a card's rules text.
-function parseEffects(oracle) {
+function parseEffects(oracle, cardName) {
+  // a card refers to itself by its full name, or the part before the comma ("Multani gets ...")
+  const selfNames = (cardName || '').split(' // ').flatMap(n => [n, n.split(',')[0]]).filter(Boolean).map(n => n.toLowerCase());
   const rows = [];
   const text = (oracle || '').replace(/\([^)]*\)/g, '');
   for (let s of text.split(/\n|(?<=\.)\s+/)) {
@@ -413,16 +467,19 @@ function parseEffects(oracle) {
     m = s.match(/^(.*?)\s+(gets?|have|has|gains?)\s+(.+)$/i);
     if (!m) continue;
     let subj = m[1].trim(), other = false, target = 'all', qual = [], note = '';
-    // "+1/+1 for each enchantment you control": the tracker can't count that, so keep the per-unit numbers and let the player adjust
+    // "+1/+1 for each artifact you control": counted live when the tracker knows how to count it;
+    // otherwise keep the per-unit numbers, switched off, for the player to adjust
     const each = m[3].match(/\bfor each\b[^,.]*?(?=\s+and\s+(?:has|have|gains?)\b|$)/i);
-    if (each) { note = each[0]; on = false; }
+    const per = each && countKind(each[0]);
+    if (each && !per) { note = each[0]; on = false; }
     // "Creatures you control of the chosen color": the condition after "you control" needs the player to judge
     const tailM = subj.match(/^(.*?\s*(?:you control|your opponents control|you don't control))\s+(.+)$/i);
     if (tailM) { subj = tailM[1]; note = tailM[2]; on = false; }
     const rest = m[2] + ' ' + m[3];
     if (/^(equipped|enchanted) creature$/i.test(subj)) { target = 'self'; subj = ''; }
+    else if (selfNames.includes(subj.toLowerCase())) { target = 'itself'; subj = ''; }
     else {
-    if (/\b(target|enchanted|equipped|this|that|it|its|you|each player|players?)\b/i.test(subj.replace(/\b(you control|you don't control)\b/gi, ''))) continue;
+    if (/\b(target|enchanted|equipped|this|that|it|its|they|them|you|each player|players?)\b/i.test(subj.replace(/\b(you control|you don't control)\b/gi, ''))) continue;
     subj = subj.replace(/^each\s+/i, '');
     if (/^other\s+/i.test(subj)) { other = true; subj = subj.replace(/^other\s+/i, ''); }
     subj = subj.replace(/^all\s+/i, '');
@@ -440,15 +497,17 @@ function parseEffects(oracle) {
     if (!pt && !kwl.length) continue;
     if (/until end of turn/i.test(rest) && when === 'static') when = 'eot';
     // keywords on a "for each" line still always apply, so they get their own row that stays on
-    if (each && pt && kwl.length) {
+    if (each && !per && pt && kwl.length) {
       rows.push({ pw: 0, tg: 0, kw: kwl.join(', '), target, other, qual: qual.join(' '), when, on: true });
       kwl.length = 0;
     }
     const row = { pw: pt ? parsePT(pt[1]) : 0, tg: pt ? parsePT(pt[2]) : 0, kw: kwl.join(', '), target, other, qual: qual.join(' '), when, on };
     if (note) row.note = note;
-    if (/X/i.test(pt ? pt[0] : ''))
-      row.x = /where x is the number of creatures you control/i.test(rest) ? 'creatures'
-        : /where x is the number of attacking creatures/i.test(rest) ? 'attacking' : 'ask';
+    if (per) { row.per = per[0]; if (per[1]) row.perMinus = per[1]; }
+    if (/X/i.test(pt ? pt[0] : '')) {
+      const wx = rest.match(/where x is the number of ([^.]+)/i), k = wx && countKind(wx[1]);
+      row.x = k ? k[0] : 'ask';
+    }
     rows.push(row);
   }
   return rows;
@@ -465,24 +524,29 @@ function describe(r) {
   // "Zombies" already names creatures; "Elf" or "token" needs the word added
   const noun = /\b[A-Z][a-z]+s$/.test(r.qual || '') ? r.qual : `${r.qual ? r.qual + ' ' : ''}creatures`;
   const o = r.other ? 'other ' : '';
-  const who = r.target === 'self' ? 'the creature it’s attached to'
+  const who = r.target === 'self' ? 'the creature it’s attached to' : r.target === 'itself' ? 'itself'
     : r.target === 'opps' ? `opponents' ${noun}` : r.target === 'all' ? `all ${o}${noun}` : `your ${o}${noun}`;
-  return `${pt}${kw} → ${who}${r.note ? ` (${r.note})` : ''}`;
+  const per = r.per ? ` for each ${r.perMinus ? 'other ' : ''}${countLabel(r.per)}` : '';
+  const x = typeof r.x === 'string' && r.x !== 'ask' ? `, X = number of ${plural(countLabel(r.x))}` : '';
+  return `${pt}${per}${kw} → ${who}${x}${r.note ? ` (${r.note})` : ''}`;
 }
-// Apply a row until end of turn (a spell, or a trigger); X is fixed now.
+// describe plus, for counted effects, what it's worth right now for player p
+const describeNow = (r, p) => {
+  if (!p || !(r.per || (typeof r.x === 'string' && r.x !== 'ask'))) return describe(r);
+  const v = rowVal(r, p);
+  return `${describe(r)} · now ${fmt(v.pw)}/${fmt(v.tg)}`;
+};
+// Apply a row until end of turn (a spell, or a trigger); X and counts are fixed now.
 function applyRow(p, name, r, srcId, hostId) {
-  let x = 0;
-  if (typeof r.pw === 'string' || typeof r.tg === 'string') {
-    if (r.x === 'creatures') x = creatureCount(p);
-    else if (r.x === 'attacking') x = sum(p.creatures, c => c.attacking);
-    else {
-      const a = prompt(`What is X for ${name}?`, '1');
-      if (a === null) return false;
-      x = parseInt(a) || 0;
-    }
+  let v = rowVal(r, p);
+  if ((typeof r.pw === 'string' || typeof r.tg === 'string') && (!r.x || r.x === 'ask')) {
+    const a = prompt(`What is X for ${name}?`, '1');
+    if (a === null) return false;
+    const x = parseInt(a) || 0;
+    v = { pw: xval(r.pw, x), tg: xval(r.tg, x) };
   }
   if (r.target === 'self' && !hostId) { toast(`${name} isn't attached to a creature.`); return false; }
-  p.eot.push({ id: uid(), name, srcId, hostId: hostId || null, pw: xval(r.pw, x), tg: xval(r.tg, x), kw: r.kw, target: r.target, other: r.other, qual: r.qual });
+  p.eot.push({ id: uid(), name, srcId, hostId: hostId || null, pw: v.pw, tg: v.tg, kw: r.kw, target: r.target, other: r.other, qual: r.qual });
   return true;
 }
 const findSrc = (p, id) => p.creatures.find(c => c.id === id) || p.perms.find(c => c.id === id);
@@ -511,11 +575,35 @@ function dropAttachments(c) {
   if (msg.length) toast(msg.join(' · '));
 }
 const rowChips = (src, label) => (src.rows || []).map((r, i) => {
-  const t = (label ? esc(src.name) + ': ' : '') + esc(describe(r));
+  const owner = S.players.find(q => q.creatures.includes(src) || q.perms.includes(src));
+  const t = (label ? esc(src.name) + ': ' : '') + esc(describeNow(r, owner));
   if (r.when === 'static')
     return `<button class="fx ${r.on === false ? 'off' : ''}" data-a="fxToggle" data-src="${src.id}" data-r="${i}" title="Tap to switch on or off">✦ ${t}</button>`;
   return `<button class="fx trig" data-a="fxFire" data-src="${src.id}" data-r="${i}" title="Apply until end of turn">▶ ${t}${r.when === 'eot' ? ' (on enter)' : ''}</button>`;
 }).join('');
+
+// counts for "for each" effects and "*" creatures: some kept by hand, artifacts/enchantments counted from the board
+function countsPanel(p) {
+  const tracked = k => countOf(p, k) - (k === 'artifact' ? p.res.xart + p.res.treasure + p.res.clue + p.res.food : p.res.xench);
+  const tileH = (k, icon, label, val, sub) => `<div class="cmdtile" style="--acc:var(--gold)">
+      <div class="r"><span class="nm">${icon} ${label}${sub ? `<br><small class="hint">${sub}</small>` : ''}</span>
+        <button data-a="res" data-k="${k}" data-d="-1">−</button><span class="n">${val}</span>
+        <button data-a="res" data-k="${k}" data-d="1">+</button></div></div>`;
+  return `<section class="cmdpanel">
+    <div class="head"><h3>Counts</h3><button class="ghost" data-a="countsToggle">✕</button></div>
+    <div class="cmd">
+      ${tileH('land', '🏔', 'Lands', p.res.land)}
+      ${tileH('hand', '🃏', 'Cards in hand', p.res.hand)}
+      ${tileH('grave', '🪦', 'Graveyard', p.res.grave)}
+      ${tileH('xart', '⚙', 'Artifacts', countOf(p, 'artifact'), `${tracked('artifact')} on the board + ${p.res.xart} untracked`)}
+      ${tileH('xench', '✨', 'Enchantments', countOf(p, 'enchantment'), `${tracked('enchantment')} on the board + ${p.res.xench} untracked`)}
+      ${tileH('treasure', '💰', 'Treasure', p.res.treasure)}
+      ${tileH('clue', '🔍', 'Clue', p.res.clue)}
+      ${tileH('food', '🍗', 'Food', p.res.food)}
+    </div>
+    <div class="opt-row">Artifacts and enchantments you've added are counted automatically; use −/+ there for ones you haven't added (mana rocks, say). Treasure, Clue and Food count as artifacts.</div>
+  </section>`;
+}
 
 function inPlay(p) {
   const perms = p.perms.map(pm => `<div class="perm">
@@ -557,17 +645,19 @@ function render() {
   bar.innerHTML = `<div class="in">
     <div class="who">
       <h2 data-a="rename" title="Tap to rename"><i></i>${esc(p.name)}${S.view === S.active ? '<small>⚑ turn</small>' : ''}</h2>
-      <div class="stats">
-        <span class="st a">⚔ <b>${sum(atk, c => c.attacking * pow(c))}</b> attacking</span>
-        <span class="st">🛡 <b>${sum(blk, c => (c.count - c.tapped) * bT(c))}</b> can block (${sum(blk, c => c.count - c.tapped)})</span>
-        <button class="st ${lvl(worst)}" data-a="cmdToggle" title="Commander damage taken">♛ <b>${others.map(o => p.cmdr[o.id] || 0).join(' · ')}</b></button>
-      </div>
     </div>
     <div class="life">
       <button data-a="life" data-d="-5">−5</button><button data-a="life" data-d="-1">−1</button>
       <b>${p.life}</b>
       <button data-a="life" data-d="1">+1</button><button data-a="life" data-d="5">+5</button>
-    </div></div>`;
+    </div>
+      <div class="stats">
+        <span class="st a">⚔ <b>${sum(atk, c => c.attacking * pow(c))}</b> attacking</span>
+        <span class="st">🛡 <b>${sum(blk, c => (c.count - c.tapped) * bT(c))}</b> can block (${sum(blk, c => c.count - c.tapped)})</span>
+        <button class="st ${lvl(worst)}" data-a="cmdToggle" title="Commander damage taken">♛ <b>${others.map(o => p.cmdr[o.id] || 0).join(' · ')}</b></button>
+        <button class="st" data-a="countsToggle" title="Lands, artifacts, enchantments, hand, graveyard">🏔 <b>${p.res.land}</b> ⚙ <b>${countOf(p, 'artifact')}</b> ✨ <b>${countOf(p, 'enchantment')}</b></button>
+      </div>
+    </div>`;
 
   const m = $('main');
   m.style.setProperty('--acc', p.color);
@@ -583,6 +673,7 @@ function render() {
           <div class="meter"><i style="width:${Math.min(100, n / 21 * 100)}%"></i></div></div>`; }).join('')}</div>
       <label class="opt-row"><input type="checkbox" data-a="cmdLife" ${S.cmdLife ? 'checked' : ''}> Commander damage also changes life total</label>
     </section>` : ''}
+    ${S.countsOpen ? countsPanel(p) : ''}
     <div class="toolbar">
       <button class="primary" data-a="add">+ Add a card</button>
       <button data-a="cast">⚡ Cast a spell</button>
@@ -661,9 +752,10 @@ function renderSheet() {
         gk.map(k => `<span class="kw g" title="From an effect">${KW[k] || ''} ${esc(k)} ✦</span>`).join('')}</div>` : ''}
       <div class="lbl">Power / toughness${c.token && c.count > 1 ? ` · group ${c.count * P}/${c.count * T}` : ''}</div>
       <table>
-        <tr><td>Base</td><td>${c.bp}/${c.bt}</td></tr>
+        <tr><td>Base${c.star && c.star.kind ? ` <small>(${[c.star.onP && 'power', c.star.onT && 'toughness'].filter(Boolean).join(' and ')} + ${CALC[c.id].star} ${plural(countLabel(c.star.kind))})</small>` : ''}</td>
+          <td>${CALC[c.id].bP}/${CALC[c.id].bT}</td></tr>
         ${c.counters ? `<tr><td>${c.counters < 0 ? '−1/−1' : '+1/+1'} counters</td><td>${num(c.counters)}/${num(c.counters)}</td></tr>` : ''}
-        ${fxRows.map(r => `<tr><td>${r.eot ? '⏳' : '✦'} ${esc(r.name)}${r.from ? ` <small>(${esc(r.from)})</small>` : ''}${r.eot ? ' <small>until end of turn</small>' : ''}</td><td>${num(r.p)}/${num(r.t)}</td></tr>`).join('')}
+        ${fxRows.map(r => `<tr><td>${r.eot ? '⏳' : '✦'} ${esc(r.name)}${r.from ? ` <small>(${esc(r.from)})</small>` : ''}${r.per ? ` <small>(${esc(r.per)})</small>` : ''}${r.eot ? ' <small>until end of turn</small>' : ''}</td><td>${num(r.p)}/${num(r.t)}</td></tr>`).join('')}
         ${c.tp || c.tt ? `<tr><td>⏳ Pumped until end of turn</td><td>${num(c.tp)}/${num(c.tt)}</td></tr>` : ''}
         <tr class="total"><td>Current</td><td>${P}/${T}</td></tr>
       </table>
@@ -752,14 +844,21 @@ const cardImgs = d => d.image_uris ? [d.image_uris.normal]
 const cardArt = d => ((d.image_uris || (d.card_faces && d.card_faces[0].image_uris) || {}).art_crop) || '';
 
 const WHO = [['mine', 'Your creatures'], ['mine-other', 'Your other creatures'], ['opps', "Opponents' creatures"], ['all', 'All creatures'],
-             ['self', 'The creature it’s attached to']];
+             ['self', 'The creature it’s attached to'], ['itself', 'This creature itself']];
 const WHEN = [['static', 'While it’s in play'], ['eot', 'Until end of turn, when it enters'], ['trigger', 'Until end of turn, each time it triggers']];
+const plural = l => l.replace(/\b(creature|artifact|enchantment|land|card)\b/, '$1s');
+const perOptions = sel => `<option value="">Flat amount</option>` +
+  COUNTS.map(([k, l]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>× for each ${l}</option>`).join('');
+$('fStar').innerHTML = '<option value="">Nothing, just the numbers above</option>' +
+  COUNTS.filter(([k]) => k !== 'attacking').map(([k, l]) => `<option value="${k}">+ number of ${plural(l)}</option>`).join('');
+let starSides = null; // which of power/toughness the "*" is on
 function drawRows() {
   $('fxRows').innerHTML = fxRows.map((r, i) => `<div class="erow" data-i="${i}">
     <div class="ept"><input class="ePw" type="text" value="${esc(fmt(r.pw))}" aria-label="Power change">/<input class="eTg" type="text" value="${esc(fmt(r.tg))}" aria-label="Toughness change"></div>
     <input class="eKw" type="text" value="${esc(r.kw || '')}" placeholder="keywords it grants">
     <select class="eWho" aria-label="Applies to">${WHO.map(([v, l]) => `<option value="${v}" ${v === (r.other ? 'mine-other' : r.target) ? 'selected' : ''}>${l}</option>`).join('')}</select>
     <input class="eQual" type="text" value="${esc(r.qual || '')}" placeholder="only: Elf, token, attacking, white…">
+    <select class="ePer" aria-label="Counts">${perOptions(r.per)}</select>
     <select class="eWhen" aria-label="How long">${WHEN.map(([v, l]) => `<option value="${v}" ${v === r.when ? 'selected' : ''}>${l}</option>`).join('')}</select>
     <button type="button" class="ghost eDel" data-i="${i}" title="Remove effect">✕</button>
   </div>`).join('');
@@ -772,6 +871,9 @@ function readRows() {
       qual: el.querySelector('.eQual').value.trim(), when: mode === 'spell' ? 'eot' : el.querySelector('.eWhen').value, on: prev.on !== false };
     if (typeof r.pw === 'string' || typeof r.tg === 'string') r.x = prev.x || 'ask';
     if (prev.note) r.note = prev.note;
+    const per = el.querySelector('.ePer').value;
+    if (per) { r.per = per; if (prev.per === per && prev.perMinus) r.perMinus = prev.perMinus; }
+    if (prev.x && prev.x !== 'ask' && r.x) r.x = prev.x;
     return r;
   });
 }
@@ -824,7 +926,7 @@ function openDlg(src, kind, opts = {}) {
   editing = src || null; art = src ? src.art || '' : ''; imgs = src ? src.imgs || [] : []; face = 0; results = [];
   type = src ? src.type || '' : ''; oracle = src ? src.oracle || '' : ''; colors = src ? src.colors || [] : [];
   fxRows = src ? JSON.parse(JSON.stringify(src.rows || [])) : [];
-  presetHost = opts.host || null;
+  presetHost = (opts && opts.host) || null;
   ownerP = (src && findPerm(src.id).owner) || S.players[S.view];
   $('fKind').value = src ? src.kind || '' : '';
   $('fModes').hidden = !!src;
@@ -835,6 +937,7 @@ function openDlg(src, kind, opts = {}) {
   $('fName').value = src ? src.name : '';
   $('fP').value = src && src.bp != null ? src.bp : 0; $('fT').value = src && src.bt != null ? src.bt : 1;
   $('fKw').value = src ? src.kw || '' : ''; $('fCount').value = src ? src.count || 1 : 1;
+  $('fStar').value = src && src.star ? src.star.kind || '' : ''; starSides = src && src.star ? src.star : null;
   $('fMsg').textContent = ''; hideSugg(); drawRows(); showImg();
   dlg.showModal(); $('fName').focus();
 }
@@ -859,8 +962,14 @@ function apply() {
   }
   const f = d.power !== undefined ? d : (d.card_faces || []).find(x => x.power !== undefined);
   if (f) { $('fP').value = parseInt(f.power) || 0; $('fT').value = parseInt(f.toughness) || 0; }
+  // "*" power/toughness: work out what it counts from the rules text, when it's a count the tracker keeps
+  const starP = /\*/.test(f && f.power || ''), starT = /\*/.test(f && f.toughness || '');
+  const sm = (starP || starT) && oracle.match(/\b(?:power|toughness)\b[^.]*?\bequal to (?:the number of |twice the number of )?([^.]+)/i);
+  const sk = sm && countKind(sm[1]);
+  $('fStar').value = sk ? sk[0] : '';
+  starSides = starP || starT ? { onP: starP, onT: starT } : null;
   $('fKw').value = (d.keywords || []).join(', ').toLowerCase();
-  fxRows = parseEffects(oracle);
+  fxRows = parseEffects(oracle, d.name);
   if (mode === 'spell') fxRows.forEach(r => { r.when = 'eot'; });
   drawRows();
   const found = fxRows.length ? ` Found ${fxRows.length} effect${fxRows.length > 1 ? 's' : ''}: check ${fxRows.length > 1 ? 'them' : 'it'} below.` : '';
@@ -870,7 +979,9 @@ function apply() {
         : "No board-wide effect found. Add one below if it has one.")
     : mode === 'perm' ? (found.trim() || 'No effect on creatures found. Add one below if it has one.')
     : !f ? 'This isn\'t a creature: set power/toughness yourself.' + found
-    : isNaN(f.power) || isNaN(f.toughness) ? 'Power/toughness is variable (*): set it yourself.' + found
+    : isNaN(f.power) || isNaN(f.toughness) ? (sk
+        ? `Power/toughness counts ${plural(countLabel(sk[0]))}: keep that number up to date in the 🏔 counts.`
+        : 'Power/toughness is variable (*): set it yourself, or pick what it counts below.') + found
     : results.length > 1 ? `${results.length} matching tokens: use ◀ ▶ to pick the right one.` + found : 'Filled in from Scryfall.' + found;
   showImg();
 }
@@ -943,7 +1054,8 @@ dlg.addEventListener('close', () => {
   } else {
     const token = isTok();
     const v = { ...card, bp: parseInt($('fP').value) || 0, bt: parseInt($('fT').value) || 0,
-                kw: $('fKw').value.trim(), token, count: token ? Math.max(1, parseInt($('fCount').value) || 1) : 1 };
+                kw: $('fKw').value.trim(), token, count: token ? Math.max(1, parseInt($('fCount').value) || 1) : 1,
+                star: $('fStar').value ? { kind: $('fStar').value, onP: starSides ? starSides.onP : true, onT: starSides ? starSides.onT : true } : null };
     if (editing) { Object.assign(editing, v); adj(editing, 'count', 0); }
     else {
       const c = { id: uid(), ...v, counters: 0, tp: 0, tt: 0, tapped: 0, attacking: 0, sick: v.count };
@@ -992,6 +1104,8 @@ function act(el) {
     case 'rename': { const n = prompt('Player name', p.name); if (n) p.name = n.trim(); break; }
     case 'life': p.life += d; break;
     case 'cmdToggle': S.cmdOpen = !S.cmdOpen; break;
+    case 'countsToggle': S.countsOpen = !S.countsOpen; break;
+    case 'res': p.res[el.dataset.k] = Math.max(0, p.res[el.dataset.k] + d); break;
     case 'cmd': {
       const o = el.dataset.o, cur = p.cmdr[o] || 0, nv = Math.max(0, cur + d);
       p.cmdr[o] = nv; if (S.cmdLife) p.life -= nv - cur; break;
