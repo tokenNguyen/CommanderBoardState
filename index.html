@@ -1,0 +1,631 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Commander Board Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg0:#efe6d2; --bg1:#f8f1e3; --panel:#fffaf0; --panel2:#f1e7d2; --text:#2a2216; --muted:#7d705a; --line:#d9cbae;
+    --gold:#9c6b12; --gold2:#c8932e; --frame:#2b2418; --frame-text:#f5ecd8;
+    --up:#2b8a3e; --down:#c92a2a; --atk:#e8590c; --lethal:#c92a2a;
+    --shadow:0 4px 14px rgba(70,45,0,.16); --display:"Cinzel",Georgia,serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg0:#090c12; --bg1:#141a26; --panel:#181e2b; --panel2:#212839; --text:#ece6d6; --muted:#9a9483; --line:#2c3446;
+      --gold:#d9a94a; --gold2:#f3d48a; --frame:#0b0d13; --frame-text:#ece6d6;
+      --up:#6bd88a; --down:#ff7b7b; --atk:#ff7a3d; --lethal:#ff5c5c;
+      --shadow:0 6px 20px rgba(0,0,0,.5);
+    }
+  }
+  * { box-sizing:border-box; }
+  html { -webkit-text-size-adjust:100%; }
+  body { margin:0; color:var(--text); font:15px/1.45 Inter,system-ui,sans-serif; min-height:100vh;
+         background:radial-gradient(1400px 700px at 50% -200px, var(--bg1), var(--bg0)) fixed; }
+  button, input { font:inherit; color:inherit; }
+  button { cursor:pointer; background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:6px 12px; min-height:36px;
+           transition:transform .06s, border-color .15s, background .15s; }
+  button:hover { border-color:var(--gold); }
+  button:active { transform:scale(.95); }
+  button.primary { background:linear-gradient(180deg,var(--gold2),var(--gold)); border-color:var(--gold); color:#1d1404; font-weight:700; }
+  button.ghost { background:transparent; }
+  button.on { background:var(--atk); border-color:var(--atk); color:#fff; font-weight:600; }
+  input[type=text], input[type=number] { background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:8px 10px; width:100%; }
+  input:focus { outline:2px solid var(--gold); outline-offset:1px; }
+
+  /* header: scrolls away; the player bar below it sticks */
+  header { border-bottom:1px solid var(--line); }
+  .bar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:10px 16px 6px; max-width:1200px; margin:0 auto; }
+  .brand { font-family:var(--display); font-weight:800; font-size:19px; letter-spacing:.06em; color:var(--gold); flex:1; white-space:nowrap; }
+  .brand span { color:var(--muted); font-weight:600; font-size:13px; letter-spacing:.02em; margin-left:8px; font-family:Inter,sans-serif; }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; }
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; padding:4px 16px 10px; max-width:1200px; margin:0 auto; }
+  .tab { display:flex; align-items:center; gap:8px; padding:5px 12px 5px 8px; border-radius:999px; background:var(--panel); }
+  .tab .dot { width:12px; height:12px; border-radius:50%; background:var(--acc); box-shadow:0 0 0 2px color-mix(in srgb, var(--acc) 30%, transparent); }
+  .tab .hp { font-family:var(--display); font-weight:700; color:var(--muted); }
+  .tab.active { border-color:var(--acc); box-shadow:0 0 0 1px var(--acc) inset; }
+  .tab.active .hp { color:var(--text); }
+  .tab.turn::after { content:"⚑"; color:var(--atk); }
+
+  /* sticky player bar: life total and board totals always in view */
+  .pbar { position:sticky; top:0; z-index:10; background:color-mix(in srgb, var(--bg0) 90%, transparent); backdrop-filter:blur(10px);
+          border-bottom:1px solid var(--line); box-shadow:var(--shadow); }
+  .pbar .in { max-width:1200px; margin:0 auto; padding:10px 16px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+              border-top:3px solid var(--acc); }
+  .who { flex:1; min-width:150px; }
+  .who h2 { margin:0; font-family:var(--display); font-size:20px; display:flex; align-items:center; gap:8px; cursor:pointer; overflow-wrap:anywhere; }
+  .who h2 i { flex:0 0 12px; height:12px; border-radius:50%; background:var(--acc); }
+  .who h2 small { font-family:Inter,sans-serif; font-size:12px; font-weight:700; color:var(--atk); }
+  .stats { display:flex; gap:6px; margin-top:4px; flex-wrap:wrap; }
+  .st { font-size:13px; padding:2px 10px; min-height:0; border-radius:999px; background:var(--panel2); border:1px solid var(--line); white-space:nowrap; }
+  .st b { font-family:var(--display); }
+  .st.a { border-color:var(--atk); color:var(--atk); }
+  .st.warn { border-color:var(--atk); color:var(--atk); } .st.lethal { background:var(--lethal); border-color:var(--lethal); color:#fff; }
+  .life { display:flex; align-items:center; gap:4px; }
+  .life b { font-family:var(--display); font-size:40px; line-height:1; min-width:70px; text-align:center; }
+  .life button { min-width:40px; padding:4px; }
+
+  main { padding:16px; max-width:1200px; margin:0 auto 60px; }
+
+  /* commander damage panel (opened from the ♛ chip) */
+  .cmdpanel { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px; margin-bottom:16px; box-shadow:var(--shadow); }
+  .cmdpanel .head { display:flex; align-items:center; margin-bottom:10px; }
+  .cmdpanel h3 { margin:0; flex:1; font-family:var(--display); font-size:16px; color:var(--gold); }
+  .cmd { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:10px; }
+  .cmdtile { background:var(--panel2); border:1px solid var(--line); border-left:4px solid var(--acc); border-radius:12px; padding:10px 12px; }
+  .cmdtile .r { display:flex; align-items:center; gap:8px; }
+  .cmdtile .nm { flex:1; font-weight:600; overflow-wrap:anywhere; }
+  .cmdtile .n { font-family:var(--display); font-size:26px; font-weight:800; min-width:40px; text-align:center; }
+  .meter { height:5px; border-radius:9px; background:var(--panel); margin-top:8px; overflow:hidden; }
+  .meter i { display:block; height:100%; background:var(--acc); border-radius:9px; }
+  .cmdtile.warn .meter i { background:var(--atk); }
+  .cmdtile.lethal { background:color-mix(in srgb, var(--lethal) 14%, var(--panel)); border-color:var(--lethal); }
+  .cmdtile.lethal .n { color:var(--lethal); } .cmdtile.lethal .meter i { background:var(--lethal); }
+  .opt-row { display:flex; align-items:center; gap:8px; margin-top:10px; color:var(--muted); font-size:13px; }
+
+  .toolbar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; align-items:center; }
+  .hint { color:var(--muted); font-size:13px; }
+  .empty { text-align:center; color:var(--muted); padding:40px 16px; border:1px dashed var(--line); border-radius:16px; }
+
+  /* the battlefield: the card is the tile */
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:20px 14px; }
+  .tile { position:relative; aspect-ratio:488/680; cursor:pointer; user-select:none; -webkit-tap-highlight-color:transparent; }
+  .face { position:absolute; inset:0; border-radius:4.75% / 3.5%; background:var(--panel2) center/cover; box-shadow:var(--shadow);
+          transition:rotate .3s cubic-bezier(.3,1.3,.5,1), scale .3s cubic-bezier(.3,1.3,.5,1); }
+  .face.b2 { translate:6px -6px; filter:brightness(.75); } .face.b3 { translate:12px -12px; filter:brightness(.6); }
+  .face.blank { display:flex; flex-direction:column; gap:4px; padding:10px; border:6px solid var(--frame);
+                background:linear-gradient(160deg,var(--panel),var(--panel2)); font-family:var(--display); }
+  .face.blank b { font-size:14px; } .face.blank small { font-family:Inter,sans-serif; font-size:11px; color:var(--muted); flex:1; }
+  .tile.tapped .face { rotate:90deg; scale:.718; }
+  .tile.attacking .face.front { box-shadow:0 0 0 3px var(--atk), 0 0 22px color-mix(in srgb, var(--atk) 60%, transparent); }
+  .tile.shake { animation:shake .35s; }
+  @keyframes shake { 25% { translate:-6px 0; } 50% { translate:6px 0; } 75% { translate:-3px 0; } }
+
+  /* overlays: small icons instead of rows of controls */
+  .ov { position:absolute; z-index:2; display:flex; gap:4px; flex-wrap:wrap; pointer-events:none; }
+  .ov.tl { top:6px; left:6px; max-width:70%; }
+  .ov.bl { bottom:8px; left:6px; max-width:62%; }
+  .ic { display:inline-flex; align-items:center; gap:3px; height:24px; min-width:24px; padding:0 7px; border-radius:999px;
+        font-size:12px; font-weight:700; background:rgba(12,12,16,.82); color:#f3ead6; backdrop-filter:blur(4px); box-shadow:0 2px 6px rgba(0,0,0,.35); }
+  .ic.atk { background:var(--atk); color:#fff; }
+  .ic.ctr { background:#2b8a3e; color:#fff; } .ic.ctr.neg { background:#c92a2a; }
+  .ic.eot { background:#1c7ed6; color:#fff; }
+  .info { position:absolute; z-index:3; top:5px; right:5px; width:32px; height:32px; min-height:0; padding:0; border-radius:50%;
+          background:rgba(12,12,16,.82); color:#f3ead6; border:1px solid rgba(255,255,255,.2); font-weight:700; }
+  .qty { position:absolute; z-index:3; top:42px; right:5px; font-family:var(--display); font-weight:800; font-size:14px;
+         background:var(--acc); color:#1d1404; border-radius:999px; padding:1px 9px; box-shadow:0 2px 6px rgba(0,0,0,.4); }
+  .pt { position:absolute; z-index:3; right:-6px; bottom:-8px; font-family:var(--display); font-weight:800; font-size:21px; line-height:1;
+        padding:6px 11px; border-radius:10px; background:linear-gradient(180deg,var(--panel),var(--panel2)); color:var(--text);
+        border:2px solid var(--frame); box-shadow:0 3px 10px rgba(0,0,0,.4); }
+  .pt.up { color:var(--up); } .pt.down { color:var(--down); }
+  .split { position:absolute; z-index:2; left:4px; bottom:-12px; font-size:11px; font-weight:600; white-space:nowrap;
+           background:var(--panel); border:1px solid var(--line); border-radius:999px; padding:1px 8px; color:var(--muted); }
+
+  .toast { position:fixed; left:50%; bottom:24px; translate:-50% 0; z-index:50; background:var(--frame); color:var(--frame-text);
+           border:1px solid var(--gold); padding:10px 16px; border-radius:12px; box-shadow:var(--shadow); opacity:0; transition:opacity .2s; pointer-events:none; }
+  .toast.show { opacity:1; }
+
+  /* dialogs */
+  dialog { background:var(--panel); color:var(--text); border:1px solid var(--line); border-top:3px solid var(--gold); border-radius:18px;
+           width:min(820px,94vw); padding:0; box-shadow:0 20px 60px rgba(0,0,0,.5); }
+  dialog::backdrop { background:rgba(5,6,10,.65); backdrop-filter:blur(3px); }
+  .pill { display:flex; align-items:center; border:1px solid var(--line); border-radius:999px; background:var(--panel2); overflow:hidden; }
+  .pill button { border:0; border-radius:0; background:transparent; min-height:34px; padding:0 10px; flex:1; font-weight:700; }
+  .pill button:hover { background:color-mix(in srgb, var(--gold) 18%, transparent); }
+  .pill b { min-width:46px; text-align:center; font-family:var(--display); font-size:15px; }
+
+  /* card detail sheet: big card left, details and controls right */
+  .sheet { position:relative; display:grid; grid-template-columns:300px 1fr; gap:22px; padding:20px; }
+  .big img, .big .face.blank { width:100%; display:block; border-radius:4.75% / 3.5%; box-shadow:var(--shadow); }
+  .big .face.blank { position:relative; aspect-ratio:488/680; }
+  .big .flip { margin-top:8px; width:100%; }
+  .d h3 { margin:0; padding-right:40px; font-family:var(--display); font-size:22px; }
+  .type { color:var(--muted); font-size:13px; margin:2px 0 10px; }
+  .oracle { white-space:pre-line; font-size:13.5px; background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  .kws { display:flex; gap:6px; flex-wrap:wrap; margin:10px 0; }
+  .kw { font-size:12px; padding:2px 10px; border-radius:999px; border:1px solid var(--line); }
+  .lbl { font-size:11px; text-transform:uppercase; letter-spacing:.09em; color:var(--muted); margin:14px 0 6px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td { padding:5px 0; border-bottom:1px dashed var(--line); } td:last-child { text-align:right; font-family:var(--display); font-weight:700; }
+  tr.total td { border-bottom:0; font-size:17px; } tr.total td:last-child { color:var(--gold); }
+  .ctl { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .ctl .l { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:3px; }
+  .acts { display:flex; gap:6px; flex-wrap:wrap; margin-top:12px; }
+  .acts button { flex:1; white-space:nowrap; }
+  .acts .x { color:var(--down); }
+  .close { position:absolute; top:12px; right:12px; width:34px; height:34px; min-height:0; padding:0; border-radius:50%; }
+
+  /* add / edit dialog */
+  .dlg { display:grid; grid-template-columns:1fr 270px; gap:20px; padding:20px; }
+  .dlg h3 { margin:0 0 6px; font-family:var(--display); color:var(--gold); grid-column:1/-1; }
+  .dlg label { display:block; margin:12px 0 4px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.07em; }
+  .dlg .check { display:flex; align-items:center; gap:8px; text-transform:none; letter-spacing:0; font-size:14px; color:var(--text);
+                background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:8px 10px; cursor:pointer; }
+  .three { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+  .search { position:relative; display:flex; gap:6px; }
+  .sugg { position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:5; background:var(--panel); border:1px solid var(--line);
+          border-radius:12px; box-shadow:var(--shadow); max-height:240px; overflow:auto; padding:4px; }
+  .sugg div { padding:7px 10px; border-radius:8px; cursor:pointer; }
+  .sugg div.sel, .sugg div:hover { background:color-mix(in srgb, var(--gold) 20%, transparent); }
+  .msg { min-height:20px; font-size:13px; color:var(--muted); margin-top:10px; }
+  .cardview { display:flex; flex-direction:column; align-items:center; gap:8px; }
+  .cardimg { width:100%; aspect-ratio:488/680; border-radius:4.75% / 3.5%; background:var(--panel2) center/cover; border:1px solid var(--line);
+             display:grid; place-items:center; color:var(--muted); font-size:13px; text-align:center; padding:12px; box-shadow:var(--shadow); }
+  .cardimg.has { padding:0; border:0; color:transparent; }
+  .nav { display:flex; gap:6px; align-items:center; font-size:13px; color:var(--muted); }
+  .nav button { min-height:30px; padding:2px 10px; }
+  .foot { grid-column:1/-1; display:flex; justify-content:flex-end; gap:8px; border-top:1px solid var(--line); padding-top:14px; }
+
+  @media (max-width:640px) {
+    .brand span { display:none; }
+    .grid { grid-template-columns:repeat(2,1fr); gap:20px 12px; }
+    .life b { font-size:34px; min-width:56px; }
+    .pbar .in { padding:8px 12px; gap:8px; }
+    #sheet { width:100vw; max-width:100vw; margin:auto 0 0; border-radius:18px 18px 0 0; max-height:92vh; }
+    .sheet { grid-template-columns:1fr; } .big { width:62%; margin:0 auto; }
+    .dlg { grid-template-columns:1fr; }
+    .dlg h3 { order:-2; } .cardview { order:-1; } .cardimg { width:55%; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand">✦ Commander Board<span id="turnInfo"></span></div>
+    <div class="actions">
+      <button class="primary" id="nextTurn">Next turn ▶</button>
+      <button id="addPlayer">+ Player</button>
+      <button class="ghost" id="reset">Reset</button>
+    </div>
+  </div>
+  <nav class="tabs" id="tabs"></nav>
+</header>
+<div class="pbar" id="pbar"></div>
+<main id="main"></main>
+<div class="toast" id="toast"></div>
+
+<dialog id="sheet"></dialog>
+
+<dialog id="dlg">
+  <form method="dialog" class="dlg">
+    <h3 id="dlgTitle">Add creature</h3>
+    <div>
+      <label class="check"><input type="checkbox" id="fTok"> Token group (many identical tokens)</label>
+      <label>Name, start typing to search</label>
+      <div class="search">
+        <input id="fName" type="text" autocomplete="off" spellcheck="false">
+        <button type="button" id="lookup">Search</button>
+        <div class="sugg" id="sugg" hidden></div>
+      </div>
+      <div class="three">
+        <div><label>Power</label><input id="fP" type="number" value="0"></div>
+        <div><label>Toughness</label><input id="fT" type="number" value="1"></div>
+        <div id="fCountWrap"><label>How many</label><input id="fCount" type="number" min="1" value="1"></div>
+      </div>
+      <label>Keywords / notes</label><input id="fKw" type="text" placeholder="flying, deathtouch…">
+      <div class="msg" id="fMsg"></div>
+    </div>
+    <div class="cardview">
+      <div class="cardimg" id="fImg">Search for a card to see it here</div>
+      <div class="nav" id="fNav" hidden>
+        <button type="button" id="prev">◀</button><span id="navTxt"></span><button type="button" id="next">▶</button>
+      </div>
+      <button type="button" id="fFlip" hidden>⟲ Flip card</button>
+    </div>
+    <div class="foot">
+      <button type="button" class="ghost" onclick="dlg.close('cancel')">Cancel</button>
+      <button class="primary" value="ok">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const KEY = 'commander-board-tracker-v2';
+const ACC = ['#d9a94a', '#4dabf7', '#ff6b6b', '#51cf66', '#b197fc', '#ff922b'];
+const KW = { flying: '🕊', vigilance: '👁', deathtouch: '☠', lifelink: '❤', haste: '⚡', trample: '🐾', reach: '🏹',
+             menace: '😈', 'first strike': '🗡', 'double strike': '⚔⚔', hexproof: '🛡', indestructible: '◆', ward: '🔰', defender: '🧱' };
+const uid = () => Math.random().toString(36).slice(2, 9);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const $ = id => document.getElementById(id);
+const newPlayer = i => ({ id: uid(), name: 'Player ' + (i + 1), life: 40, cmdr: {}, creatures: [], color: ACC[i % ACC.length] });
+
+function fresh() { return { active: 0, view: 0, cmdLife: true, players: [0, 1, 2, 3].map(newPlayer) }; }
+let S;
+try { S = JSON.parse(localStorage.getItem(KEY)) || fresh(); } catch { S = fresh(); }
+S.players.forEach((p, i) => { p.color = p.color || ACC[i % ACC.length]; });
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} };
+
+// counters = net +1/+1 (negative = -1/-1) per creature; tp/tt = until-end-of-turn mods per creature
+const pow = c => c.bp + c.counters + c.tp;
+const tou = c => c.bt + c.counters + c.tt;
+const num = x => (x > 0 ? '+' + x : String(x));
+const sum = (arr, f) => arr.reduce((a, c) => a + f(c), 0);
+const lvl = n => (n >= 21 ? 'lethal' : n >= 15 ? 'warn' : '');
+const kws = c => (c.kw || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+const has = (c, k) => kws(c).includes(k);
+const ptClass = c => {
+  const P = pow(c), T = tou(c), up = P > c.bp || T > c.bt, down = P < c.bp || T < c.bt;
+  return up && !down ? 'up' : down && !up ? 'down' : '';
+};
+
+function render() {
+  S.view = Math.min(S.view, S.players.length - 1);
+  S.active = Math.min(S.active, S.players.length - 1);
+  $('turnInfo').textContent = S.players[S.active].name + "'s turn";
+  $('tabs').innerHTML = S.players.map((p, i) =>
+    `<button class="tab ${i === S.view ? 'active' : ''} ${i === S.active ? 'turn' : ''}" style="--acc:${p.color}" data-a="view" data-i="${i}">
+       <span class="dot"></span><span>${esc(p.name)}</span><span class="hp">${p.life}</span></button>`).join('');
+
+  const p = S.players[S.view];
+  const atk = p.creatures.filter(c => c.attacking > 0);
+  const blk = p.creatures.filter(c => c.count - c.tapped > 0);
+  const others = S.players.filter(x => x.id !== p.id);
+  const worst = Math.max(0, ...others.map(o => p.cmdr[o.id] || 0));
+
+  const bar = $('pbar');
+  bar.style.setProperty('--acc', p.color);
+  bar.innerHTML = `<div class="in">
+    <div class="who">
+      <h2 data-a="rename" title="Tap to rename"><i></i>${esc(p.name)}${S.view === S.active ? '<small>⚑ turn</small>' : ''}</h2>
+      <div class="stats">
+        <span class="st a">⚔ <b>${sum(atk, c => c.attacking * pow(c))}</b> attacking</span>
+        <span class="st">🛡 <b>${sum(blk, c => (c.count - c.tapped) * tou(c))}</b> can block (${sum(blk, c => c.count - c.tapped)})</span>
+        <button class="st ${lvl(worst)}" data-a="cmdToggle" title="Commander damage taken">♛ <b>${others.map(o => p.cmdr[o.id] || 0).join(' · ')}</b></button>
+      </div>
+    </div>
+    <div class="life">
+      <button data-a="life" data-d="-5">−5</button><button data-a="life" data-d="-1">−1</button>
+      <b>${p.life}</b>
+      <button data-a="life" data-d="1">+1</button><button data-a="life" data-d="5">+5</button>
+    </div></div>`;
+
+  const m = $('main');
+  m.style.setProperty('--acc', p.color);
+  m.innerHTML = `
+    ${S.cmdOpen ? `<section class="cmdpanel">
+      <div class="head"><h3>Commander damage taken</h3><button class="ghost" data-a="cmdToggle">✕</button></div>
+      <div class="cmd">${others.map(o => {
+        const n = p.cmdr[o.id] || 0;
+        return `<div class="cmdtile ${lvl(n)}" style="--acc:${o.color}">
+          <div class="r"><span class="nm">${esc(o.name)}</span>
+            <button data-a="cmd" data-o="${o.id}" data-d="-1">−</button><span class="n">${n}</span>
+            <button data-a="cmd" data-o="${o.id}" data-d="1">+</button></div>
+          <div class="meter"><i style="width:${Math.min(100, n / 21 * 100)}%"></i></div></div>`; }).join('')}</div>
+      <label class="opt-row"><input type="checkbox" data-a="cmdLife" ${S.cmdLife ? 'checked' : ''}> Commander damage also changes life total</label>
+    </section>` : ''}
+    <div class="toolbar">
+      <button class="primary" data-a="add">+ Add creature / tokens</button>
+      <button data-a="untap">Untap all</button>
+      <button data-a="clearAtk">Clear attackers</button>
+      ${S.players.length > 2 ? '<button class="ghost" data-a="delPlayer">Remove player</button>' : ''}
+      ${p.creatures.length ? '<span class="hint">Tap a card to attack · ⓘ for details and controls</span>' : ''}
+    </div>
+    ${p.creatures.length ? `<div class="grid">${p.creatures.map(tile).join('')}</div>`
+      : '<div class="empty">No creatures yet. Add one, or a pile of tokens.</div>'}`;
+  if (sheet.open) renderSheet();
+  save();
+}
+
+// ---------- battlefield tiles ----------
+function faceEl(c, i) {
+  const cls = `face ${i > 1 ? 'b' + i : 'front'}`;
+  return c.imgs && c.imgs.length
+    ? `<div class="${cls}" style="background-image:url('${esc(c.imgs[0])}')"></div>`
+    : `<div class="${cls} blank"><b>${esc(c.name)}</b><small>${esc(c.type || (c.token ? 'Token creature' : 'Creature'))}</small></div>`;
+}
+function tile(c) {
+  const allTapped = c.tapped >= c.count;
+  let faces = '';
+  for (let i = c.token ? Math.min(c.count, 3) : 1; i >= 1; i--) faces += faceEl(c, i);
+  const tl = [
+    c.attacking && `<span class="ic atk" title="Attacking">⚔${c.token ? ' ' + c.attacking : ''}</span>`,
+    c.sick && `<span class="ic" title="Summoning sick">💤${c.token ? ' ' + c.sick : ''}</span>`,
+  ];
+  const bl = [
+    c.counters && `<span class="ic ctr ${c.counters < 0 ? 'neg' : ''}" title="${c.counters > 0 ? '+1/+1' : '−1/−1'} counters">${c.counters > 0 ? '▲' : '▼'}${Math.abs(c.counters)}</span>`,
+    (c.tp || c.tt) && `<span class="ic eot" title="Until end of turn">⏳${num(c.tp)}/${num(c.tt)}</span>`,
+    ...kws(c).map(k => KW[k] && `<span class="ic" title="${esc(k)}">${KW[k]}</span>`),
+  ];
+  return `<div class="tile ${allTapped ? 'tapped' : ''} ${c.attacking ? 'attacking' : ''}" data-id="${c.id}" data-a="strike" title="${esc(c.name)}">
+    ${faces}
+    <div class="ov tl">${tl.filter(Boolean).join('')}</div>
+    <div class="ov bl">${bl.filter(Boolean).join('')}</div>
+    <button class="info" data-a="info" title="Details">ⓘ</button>
+    ${c.token ? `<span class="qty">×${c.count}</span>` : ''}
+    <div class="pt ${ptClass(c)}">${pow(c)}/${tou(c)}</div>
+    ${c.token && c.tapped && !allTapped ? `<span class="split">${c.count - c.tapped} ready · ${c.tapped} tapped</span>` : ''}
+  </div>`;
+}
+
+// ---------- detail sheet ----------
+const sheet = $('sheet');
+let sheetId = null, sheetFace = 0;
+const pill = (a, f, val) =>
+  `<div class="pill"><button data-a="${a}" ${f ? `data-f="${f}"` : ''} data-d="-1">−</button><b>${val}</b><button data-a="${a}" ${f ? `data-f="${f}"` : ''} data-d="1">+</button></div>`;
+function renderSheet() {
+  const c = S.players[S.view].creatures.find(x => x.id === sheetId);
+  if (!c) { sheet.close(); return; }
+  const P = pow(c), T = tou(c), list = kws(c), imgs = c.imgs || [];
+  sheet.innerHTML = `<div class="sheet">
+    <div class="big">
+      ${imgs.length ? `<img src="${esc(imgs[sheetFace] || imgs[0])}" alt="${esc(c.name)}">` : faceEl(c, 1).replace('face front', 'face')}
+      ${imgs.length > 1 ? '<button class="flip" data-a="flip">⟲ Flip card</button>' : ''}
+    </div>
+    <div class="d">
+      <h3>${esc(c.name)}${c.token ? ` <span style="color:var(--muted)">×${c.count}</span>` : ''}</h3>
+      <div class="type">${esc(c.type || (c.token ? 'Token creature' : 'Creature'))}</div>
+      ${c.oracle ? `<div class="oracle">${esc(c.oracle)}</div>` : ''}
+      ${list.length ? `<div class="kws">${list.map(k => `<span class="kw">${KW[k] || ''} ${esc(k)}</span>`).join('')}</div>` : ''}
+      <div class="lbl">Power / toughness${c.token && c.count > 1 ? ` · group ${c.count * P}/${c.count * T}` : ''}</div>
+      <table>
+        <tr><td>Base</td><td>${c.bp}/${c.bt}</td></tr>
+        <tr><td>${c.counters < 0 ? '−1/−1' : '+1/+1'} counters</td><td>${num(c.counters)}/${num(c.counters)}</td></tr>
+        <tr><td>Until end of turn</td><td>${num(c.tp)}/${num(c.tt)}</td></tr>
+        <tr class="total"><td>Current</td><td>${P}/${T}</td></tr>
+      </table>
+      <div class="lbl">Adjust</div>
+      <div class="ctl">
+        <div><div class="l">+1/+1 counters</div>${pill('ctr', '', num(c.counters))}</div>
+        <div><div class="l">Until end of turn</div>${pill('eot', '', `${num(c.tp)}/${num(c.tt)}`)}</div>
+        ${c.token ? `
+        <div><div class="l">Count</div>${pill('adj', 'count', c.count)}</div>
+        <div><div class="l">Attacking</div>${pill('adj', 'attacking', c.attacking)}</div>
+        <div><div class="l">Tapped</div>${pill('adj', 'tapped', c.tapped)}</div>
+        <div><div class="l">Summoning sick</div>${pill('adj', 'sick', c.sick)}</div>` : ''}
+      </div>
+      <div class="acts">
+        ${c.token ? `
+        <button data-a="tapAll">Tap all</button><button data-a="untapAll">Untap all</button>
+        <button data-a="ready">All ready</button><button data-a="split" title="Move one token into its own group">Split 1</button>` : `
+        <button class="${c.attacking ? 'on' : ''}" data-a="strike">⚔ ${c.attacking ? 'Attacking' : 'Attack'}</button>
+        <button data-a="tap">${c.tapped ? 'Untap' : 'Tap'}</button>
+        <button data-a="sick">${c.sick ? 'Ready' : 'Summoning sick'}</button>`}
+      </div>
+      <div class="acts">
+        <button data-a="edit">✎ Edit</button>
+        <button class="x" data-a="del">Remove</button>
+      </div>
+    </div>
+    <button class="close" data-a="close" title="Close">✕</button>
+  </div>`;
+}
+sheet.addEventListener('click', e => { if (e.target === sheet) sheet.close(); });
+
+// tap the card: attack with it (a token group sends every ready token), or cancel the attack
+function strike(c) {
+  const vig = has(c, 'vigilance'), haste = has(c, 'haste');
+  if (c.attacking) { if (!vig) c.tapped = Math.max(0, c.tapped - c.attacking); c.attacking = 0; return true; }
+  const ready = c.count - c.tapped - (haste ? 0 : c.sick);
+  if (ready <= 0) return c.tapped >= c.count ? 'Already tapped. Untap it first.' : "Summoning sick, so it can't attack yet.";
+  c.attacking = ready; if (!vig) c.tapped += ready;
+  return true;
+}
+function animTap(id, was, now) {
+  if (was === now) return;
+  const t = document.querySelector(`.tile[data-id="${id}"]`); if (!t) return;
+  const up = { rotate: '0deg', scale: 1 }, side = { rotate: '90deg', scale: .718 };
+  t.querySelectorAll('.face').forEach(f =>
+    f.animate(now ? [up, side] : [side, up], { duration: 300, easing: 'cubic-bezier(.3,1.3,.5,1)' }));
+}
+let toastT;
+function toast(t) {
+  const el = $('toast'); el.textContent = t; el.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('show'), 1800);
+}
+
+function adj(c, f, d) {
+  if (f === 'count') { c.count = Math.max(1, c.count + d); if (d > 0) c.sick = Math.min(c.count, c.sick + d); }
+  else if (f === 'attacking') {
+    const v = c.attacking + d;
+    if (v < 0 || v > c.count - (has(c, 'haste') ? 0 : c.sick)) return;
+    c.attacking = v; if (!has(c, 'vigilance')) c.tapped += d;
+  } else c[f] += d;
+  c.tapped = Math.min(c.count, Math.max(0, c.tapped));
+  c.sick = Math.min(c.count, Math.max(0, c.sick));
+  c.attacking = Math.min(c.count, Math.max(0, c.attacking));
+}
+
+// ---------- add / edit dialog ----------
+const dlg = $('dlg');
+let editing = null, art = '', imgs = [], face = 0, type = '', oracle = '', results = [], rIdx = 0, sugg = [], sIdx = -1, tmr;
+const syncTok = () => { $('fCountWrap').style.visibility = $('fTok').checked ? 'visible' : 'hidden'; };
+const cardImgs = d => d.image_uris ? [d.image_uris.normal]
+  : (d.card_faces || []).map(f => f.image_uris && f.image_uris.normal).filter(Boolean);
+const cardArt = d => ((d.image_uris || (d.card_faces && d.card_faces[0].image_uris) || {}).art_crop) || '';
+
+function showImg() {
+  const el = $('fImg');
+  el.classList.toggle('has', imgs.length > 0);
+  el.style.backgroundImage = imgs.length ? `url('${imgs[face]}')` : '';
+  el.textContent = imgs.length ? '' : 'Search for a card to see it here';
+  $('fFlip').hidden = imgs.length < 2;
+  $('fNav').hidden = results.length < 2;
+  $('navTxt').textContent = `${rIdx + 1} of ${results.length}`;
+}
+function openDlg(c) {
+  editing = c || null; art = c ? c.art || '' : ''; imgs = c ? c.imgs || [] : []; face = 0; results = [];
+  type = c ? c.type || '' : ''; oracle = c ? c.oracle || '' : '';
+  $('dlgTitle').textContent = c ? 'Edit ' + c.name : 'Add creature / tokens';
+  $('fName').value = c ? c.name : ''; $('fP').value = c ? c.bp : 0; $('fT').value = c ? c.bt : 1;
+  $('fKw').value = c ? c.kw : ''; $('fTok').checked = c ? c.token : false; $('fCount').value = c ? c.count : 1;
+  $('fMsg').textContent = ''; hideSugg(); syncTok(); showImg();
+  dlg.showModal(); $('fName').focus();
+}
+$('fTok').onchange = syncTok;
+
+function apply() {
+  const d = results[rIdx];
+  $('fName').value = d.name;
+  const f = d.power !== undefined ? d : (d.card_faces || []).find(x => x.power !== undefined);
+  if (f) { $('fP').value = parseInt(f.power) || 0; $('fT').value = parseInt(f.toughness) || 0; }
+  $('fKw').value = (d.keywords || []).join(', ').toLowerCase();
+  imgs = cardImgs(d); art = cardArt(d); face = 0;
+  type = d.type_line || '';
+  oracle = d.oracle_text != null ? d.oracle_text : (d.card_faces || []).map(x => x.oracle_text).filter(Boolean).join('\n\n');
+  $('fMsg').textContent = !f ? 'This isn\'t a creature: set power/toughness yourself.'
+    : isNaN(f.power) || isNaN(f.toughness) ? 'Power/toughness is variable (*): set it yourself.'
+    : results.length > 1 ? `${results.length} matching tokens: use ◀ ▶ to pick the right one.` : 'Filled in from Scryfall.';
+  showImg();
+}
+async function lookup() {
+  const q = $('fName').value.trim(); if (!q) return;
+  hideSugg(); $('fMsg').textContent = 'Searching…';
+  try {
+    const search = s => fetch('https://api.scryfall.com/cards/search?unique=cards&include_extras=true&q=' + encodeURIComponent(s)).then(x => x.json());
+    if ($('fTok').checked) {
+      // exact token name first (so "Soldier" finds Soldier tokens, not Bird Soldier), then a loose match
+      let r = await search(`!"${q}" layout:token`);
+      if (r.object === 'error') r = await search(q + ' layout:token');
+      results = r.data || [];
+    } else {
+      const r = await (await fetch('https://api.scryfall.com/cards/named?fuzzy=' + encodeURIComponent(q))).json();
+      results = r.object === 'error' ? [] : [r];
+    }
+    if (!results.length) { $('fMsg').textContent = 'No match found. Check the spelling, or enter details yourself.'; return; }
+    rIdx = 0; apply();
+  } catch { $('fMsg').textContent = 'Search failed (offline?). Enter details yourself.'; }
+}
+$('lookup').onclick = lookup;
+$('prev').onclick = () => { rIdx = (rIdx - 1 + results.length) % results.length; apply(); };
+$('next').onclick = () => { rIdx = (rIdx + 1) % results.length; apply(); };
+$('fFlip').onclick = () => { face = (face + 1) % imgs.length; showImg(); };
+
+// autocomplete
+function hideSugg() { $('sugg').hidden = true; sIdx = -1; }
+function drawSugg() {
+  $('sugg').innerHTML = sugg.map((n, i) => `<div data-i="${i}" class="${i === sIdx ? 'sel' : ''}">${esc(n)}</div>`).join('');
+  $('sugg').hidden = !sugg.length;
+}
+function pick(i) { $('fName').value = sugg[i]; hideSugg(); lookup(); }
+$('fName').addEventListener('input', () => {
+  clearTimeout(tmr);
+  const q = $('fName').value.trim();
+  if (q.length < 2) { hideSugg(); return; }
+  tmr = setTimeout(async () => {
+    try {
+      const r = await (await fetch('https://api.scryfall.com/cards/autocomplete?q=' + encodeURIComponent(q) + ($('fTok').checked ? '&include_extras=true' : ''))).json();
+      if ($('fName').value.trim() !== q) return;
+      sugg = (r.data || []).slice(0, 12); sIdx = -1; drawSugg();
+    } catch {}
+  }, 220);
+});
+$('fName').addEventListener('keydown', e => {
+  const open = !$('sugg').hidden;
+  if (e.key === 'ArrowDown' && open) { e.preventDefault(); sIdx = Math.min(sugg.length - 1, sIdx + 1); drawSugg(); }
+  else if (e.key === 'ArrowUp' && open) { e.preventDefault(); sIdx = Math.max(0, sIdx - 1); drawSugg(); }
+  else if (e.key === 'Enter') { e.preventDefault(); open && sIdx >= 0 ? pick(sIdx) : lookup(); }
+  else if (e.key === 'Escape' && open) { e.preventDefault(); hideSugg(); }
+});
+$('fName').addEventListener('blur', () => setTimeout(hideSugg, 150));
+$('sugg').addEventListener('pointerdown', e => { const o = e.target.closest('[data-i]'); if (o) { e.preventDefault(); pick(+o.dataset.i); } });
+
+dlg.addEventListener('close', () => {
+  if (dlg.returnValue !== 'ok' || !$('fName').value.trim()) return;
+  const token = $('fTok').checked;
+  const v = { name: $('fName').value.trim(), bp: parseInt($('fP').value) || 0, bt: parseInt($('fT').value) || 0,
+              kw: $('fKw').value.trim(), art, imgs, type, oracle, token, count: token ? Math.max(1, parseInt($('fCount').value) || 1) : 1 };
+  if (editing) { Object.assign(editing, v); adj(editing, 'count', 0); }
+  else S.players[S.view].creatures.push({ id: uid(), ...v, counters: 0, tp: 0, tt: 0, tapped: 0, attacking: 0, sick: v.count });
+  render();
+});
+
+// ---------- events ----------
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-a]');
+  if (!el || el.type === 'checkbox') return;
+  if (el.closest('dialog') && !el.closest('#sheet')) return;
+  act(el);
+});
+document.addEventListener('change', e => {
+  if (e.target.dataset.a === 'cmdLife') { S.cmdLife = e.target.checked; render(); }
+});
+function act(el) {
+  const a = el.dataset.a, d = parseInt(el.dataset.d), p = S.players[S.view];
+  const tileEl = el.closest('.tile');
+  const id = tileEl ? tileEl.dataset.id : el.closest('#sheet') ? sheetId : null;
+  const c = id && p.creatures.find(x => x.id === id);
+  const before = c && c.tapped >= c.count;
+  switch (a) {
+    case 'strike': {
+      const r = strike(c);
+      if (r !== true) {
+        const t = document.querySelector(`.tile[data-id="${c.id}"]`);
+        if (t) { t.classList.remove('shake'); void t.offsetWidth; t.classList.add('shake'); }
+        return toast(r);
+      }
+      break;
+    }
+    case 'info': sheetId = c.id; sheetFace = 0; renderSheet(); sheet.showModal(); return;
+    case 'close': sheet.close(); return;
+    case 'flip': sheetFace = (sheetFace + 1) % c.imgs.length; renderSheet(); return;
+    case 'edit': sheet.close(); return openDlg(c);
+    case 'view': S.view = parseInt(el.dataset.i); break;
+    case 'rename': { const n = prompt('Player name', p.name); if (n) p.name = n.trim(); break; }
+    case 'life': p.life += d; break;
+    case 'cmdToggle': S.cmdOpen = !S.cmdOpen; break;
+    case 'cmd': {
+      const o = el.dataset.o, cur = p.cmdr[o] || 0, nv = Math.max(0, cur + d);
+      p.cmdr[o] = nv; if (S.cmdLife) p.life -= nv - cur; break;
+    }
+    case 'add': return openDlg();
+    case 'untap': p.creatures.forEach(x => { x.tapped = 0; }); break;
+    case 'clearAtk': p.creatures.forEach(x => { x.attacking = 0; }); break;
+    case 'delPlayer': if (confirm('Remove ' + p.name + '?')) { S.players.splice(S.view, 1); S.view = 0; S.active = 0; } break;
+    case 'ctr': c.counters += d; break;
+    case 'eot': c.tp += d; c.tt += d; break;
+    case 'adj': adj(c, el.dataset.f, d); break;
+    case 'tapAll': c.tapped = c.count; break;
+    case 'untapAll': c.tapped = 0; c.attacking = 0; break;
+    case 'ready': c.sick = 0; break;
+    case 'split': {
+      if (c.count < 2) break;
+      const n = { ...c, id: uid(), count: 1, tapped: 0, sick: 0, attacking: 0 };
+      if (c.count - c.tapped - c.sick <= 0) { if (c.sick > 0) { n.sick = 1; c.sick--; } else { n.tapped = 1; c.tapped--; } }
+      c.count--; adj(c, 'count', 0);
+      p.creatures.splice(p.creatures.indexOf(c) + 1, 0, n); break;
+    }
+    case 'tap': c.tapped = c.tapped ? 0 : 1; break;
+    case 'sick': c.sick = c.sick ? 0 : 1; break;
+    case 'del': p.creatures = p.creatures.filter(x => x !== c); sheet.close(); break;
+  }
+  render();
+  if (c) animTap(c.id, before, c.tapped >= c.count);
+}
+$('nextTurn').onclick = () => {
+  // end of turn: temporary effects and attack flags clear everywhere; new active player untaps and loses sickness
+  S.players.forEach(p => p.creatures.forEach(c => { c.tp = 0; c.tt = 0; c.attacking = 0; }));
+  S.active = (S.active + 1) % S.players.length;
+  S.view = S.active;
+  S.players[S.active].creatures.forEach(c => { c.tapped = 0; c.sick = 0; });
+  render();
+};
+$('addPlayer').onclick = () => { S.players.push(newPlayer(S.players.length)); S.view = S.players.length - 1; render(); };
+$('reset').onclick = () => { if (confirm('Reset everything?')) { S = fresh(); render(); } };
+render();
+</script>
+</body>
+</html>

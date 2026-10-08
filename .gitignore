@@ -1,0 +1,7 @@
+# Local tooling that the live site doesn't need
+deploy.ps1
+.claude/
+.vercel/
+
+# Design mockup, not part of the site
+mockup-card-focus.html
