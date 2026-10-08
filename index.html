@@ -109,8 +109,23 @@
   .fx .x { color:var(--muted); font-weight:700; margin-left:2px; }
 
   /* the battlefield: the card is the tile */
-  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:20px 14px; }
-  .tile { position:relative; aspect-ratio:488/680; cursor:pointer; user-select:none; -webkit-tap-highlight-color:transparent; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:20px 14px; align-items:end; }
+  .tile { position:relative; aspect-ratio:488/680; cursor:pointer; user-select:none; -webkit-tap-highlight-color:transparent;
+          margin-top:calc(var(--att, 0) * 26px); }
+  /* attached equipment/auras: the top strip (name bar) of each shows above the creature */
+  .att { position:absolute; left:0; right:0; top:calc(var(--i) * -26px); aspect-ratio:488/680; border-radius:4.75% / 3.5%;
+         background:var(--panel2) center top/cover; box-shadow:0 2px 8px rgba(0,0,0,.4); filter:brightness(.92); transition:opacity .2s; }
+  .att:hover { filter:none; }
+  .att.blank { border:5px solid var(--frame); padding:3px 8px; font:700 12px var(--display); background:linear-gradient(160deg,var(--panel),var(--panel2)); }
+  .tile.tapped .att { opacity:0; pointer-events:none; }
+  .attto { display:flex !important; align-items:center; gap:6px; margin:0 0 6px !important; font-size:12px; color:var(--muted); }
+  .attto select { padding:4px 8px; font-size:13px; }
+  .attlist { display:grid; gap:6px; }
+  .attrow { display:flex; align-items:center; gap:8px; background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:6px 8px; }
+  .attrow .th { flex:0 0 30px; aspect-ratio:488/680; border-radius:5% / 3.6%; background:var(--panel) center/cover; }
+  .attrow span.n { flex:1; min-width:0; font-weight:600; overflow-wrap:anywhere; }
+  .attrow small { color:var(--muted); font-weight:400; }
+  .attrow button { min-height:30px; padding:2px 9px; font-size:13px; }
   .face { position:absolute; inset:0; border-radius:4.75% / 3.5%; background:var(--panel2) center/cover; box-shadow:var(--shadow);
           transition:rotate .3s cubic-bezier(.3,1.3,.5,1), scale .3s cubic-bezier(.3,1.3,.5,1); }
   .face.b2 { translate:6px -6px; filter:brightness(.75); } .face.b3 { translate:12px -12px; filter:brightness(.6); }
@@ -266,6 +281,11 @@
         </div>
         <label>Keywords / notes</label><input id="fKw" type="text" placeholder="flying, deathtouch…">
       </div>
+      <div id="fAttach" class="three" hidden>
+        <div><label>Kind</label><select id="fKind">
+          <option value="">Stays on its own</option><option value="equipment">Equipment</option><option value="aura">Aura</option></select></div>
+        <div id="fHostWrap" style="grid-column:span 2"><label>Attached to</label><select id="fHost"></select></div>
+      </div>
       <div class="msg" id="fMsg"></div>
       <label id="fxTitle">Effects on other creatures</label>
       <div class="fxhint" id="fxHint"></div>
@@ -290,7 +310,7 @@
 const KEY = 'commander-board-tracker-v2';
 const ACC = ['#d9a94a', '#4dabf7', '#ff6b6b', '#51cf66', '#b197fc', '#ff922b'];
 const KW = { flying: '🕊', vigilance: '👁', deathtouch: '☠', lifelink: '❤', haste: '⚡', trample: '🐾', reach: '🏹',
-             menace: '😈', 'first strike': '🗡', 'double strike': '⚔⚔', hexproof: '🛡', indestructible: '◆', ward: '🔰', defender: '🧱' };
+             menace: '😈', 'first strike': '🗡', 'double strike': '⚔⚔', hexproof: '🛡', indestructible: '◆', ward: '🔰', defender: '🧱', shroud: '🌫' };
 const COLORS = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
 const uid = () => Math.random().toString(36).slice(2, 9);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -341,7 +361,10 @@ function recalc() {
     const cnt = creatureCount(q);
     [...q.creatures, ...q.perms].forEach(src => (src.rows || []).forEach(r => {
       if (r.when !== 'static' || r.on === false) return;
-      EFFS.push({ ...r, pw: xval(r.pw, cnt), tg: xval(r.tg, cnt), owner: q, srcId: src.id, name: src.name, static: true });
+      // "Equipped/enchanted creature gets ..." only counts while it's attached to something
+      if (r.target === 'self' && !src.host) return;
+      EFFS.push({ ...r, pw: xval(r.pw, cnt), tg: xval(r.tg, cnt), owner: q, srcId: src.id, name: src.name, static: true,
+                  hostId: r.target === 'self' ? src.host : null });
     }));
     q.eot.forEach(e => EFFS.push({ ...e, owner: q, static: false }));
   });
@@ -349,7 +372,8 @@ function recalc() {
   S.players.forEach(p => p.creatures.forEach(c => {
     const r = { P: c.bp + c.counters + c.tp, T: c.bt + c.counters + c.tt, sp: 0, st: 0, ep: c.tp, et: c.tt, aP: 0, aT: 0, kw: new Set(), rows: [] };
     EFFS.forEach(e => {
-      if (e.owner === p ? e.target === 'opps' : e.target === 'mine') return;
+      if (e.target === 'self') { if (e.hostId !== c.id) return; }
+      else if (e.owner === p ? e.target === 'opps' : e.target === 'mine') return;
       if (e.other && e.srcId === c.id) return;
       if (!qualMatch(c, e.qual)) return;
       r.P += e.pw; r.T += e.tg;
@@ -386,14 +410,18 @@ function parseEffects(oracle) {
     if ((m = s.match(/^[^:]*\{[^:]*:\s*/))) { when = /until end of turn/i.test(s) ? 'trigger' : when; s = s.slice(m[0].length); }
     if ((m = s.match(/^as long as [^,]*,\s*/i))) { on = false; s = s.slice(m[0].length); }
     if ((m = s.match(/^until end of turn,\s*/i))) { if (when === 'static') when = 'eot'; s = s.slice(m[0].length); }
-    if (/\bfor each\b/i.test(s)) continue;
     m = s.match(/^(.*?)\s+(gets?|have|has|gains?)\s+(.+)$/i);
     if (!m) continue;
     let subj = m[1].trim(), other = false, target = 'all', qual = [], note = '';
+    // "+1/+1 for each enchantment you control": the tracker can't count that, so keep the per-unit numbers and let the player adjust
+    const each = m[3].match(/\bfor each\b[^,.]*?(?=\s+and\s+(?:has|have|gains?)\b|$)/i);
+    if (each) { note = each[0]; on = false; }
     // "Creatures you control of the chosen color": the condition after "you control" needs the player to judge
     const tailM = subj.match(/^(.*?\s*(?:you control|your opponents control|you don't control))\s+(.+)$/i);
     if (tailM) { subj = tailM[1]; note = tailM[2]; on = false; }
     const rest = m[2] + ' ' + m[3];
+    if (/^(equipped|enchanted) creature$/i.test(subj)) { target = 'self'; subj = ''; }
+    else {
     if (/\b(target|enchanted|equipped|this|that|it|its|you|each player|players?)\b/i.test(subj.replace(/\b(you control|you don't control)\b/gi, ''))) continue;
     subj = subj.replace(/^each\s+/i, '');
     if (/^other\s+/i.test(subj)) { other = true; subj = subj.replace(/^other\s+/i, ''); }
@@ -405,11 +433,17 @@ function parseEffects(oracle) {
     else if (/\btokens$/i.test(subj)) { qual.push('token'); subj = subj.replace(/\s*\btokens$/i, ''); }
     else if (!/^[A-Z]/.test(subj)) continue; // "Elves you control" names a creature type; anything else isn't about creatures
     if (subj) qual.unshift(subj.replace(/\b(Attacking|Blocking|Tapped|Untapped|Nontoken|White|Blue|Black|Red|Green|Legendary|Artifact)\b/g, w => w.toLowerCase()));
+    }
     const pt = rest.match(/([+\-−](?:\d+|X))\/([+\-−](?:\d+|X))/i);
     const km = rest.match(/\b(?:have|has|gain|gains)\s+(.+?)(?=\s+and\s+gets?\b|\s+until\b|,\s*where\b|$)/i);
     const kwl = km ? km[1].split(/,\s*(?:and\s+)?|\s+and\s+/).map(k => k.trim().toLowerCase()).filter(k => KW[k]) : [];
     if (!pt && !kwl.length) continue;
     if (/until end of turn/i.test(rest) && when === 'static') when = 'eot';
+    // keywords on a "for each" line still always apply, so they get their own row that stays on
+    if (each && pt && kwl.length) {
+      rows.push({ pw: 0, tg: 0, kw: kwl.join(', '), target, other, qual: qual.join(' '), when, on: true });
+      kwl.length = 0;
+    }
     const row = { pw: pt ? parsePT(pt[1]) : 0, tg: pt ? parsePT(pt[2]) : 0, kw: kwl.join(', '), target, other, qual: qual.join(' '), when, on };
     if (note) row.note = note;
     if (/X/i.test(pt ? pt[0] : ''))
@@ -431,11 +465,12 @@ function describe(r) {
   // "Zombies" already names creatures; "Elf" or "token" needs the word added
   const noun = /\b[A-Z][a-z]+s$/.test(r.qual || '') ? r.qual : `${r.qual ? r.qual + ' ' : ''}creatures`;
   const o = r.other ? 'other ' : '';
-  const who = r.target === 'opps' ? `opponents' ${noun}` : r.target === 'all' ? `all ${o}${noun}` : `your ${o}${noun}`;
+  const who = r.target === 'self' ? 'the creature it’s attached to'
+    : r.target === 'opps' ? `opponents' ${noun}` : r.target === 'all' ? `all ${o}${noun}` : `your ${o}${noun}`;
   return `${pt}${kw} → ${who}${r.note ? ` (${r.note})` : ''}`;
 }
 // Apply a row until end of turn (a spell, or a trigger); X is fixed now.
-function applyRow(p, name, r, srcId) {
+function applyRow(p, name, r, srcId, hostId) {
   let x = 0;
   if (typeof r.pw === 'string' || typeof r.tg === 'string') {
     if (r.x === 'creatures') x = creatureCount(p);
@@ -446,10 +481,35 @@ function applyRow(p, name, r, srcId) {
       x = parseInt(a) || 0;
     }
   }
-  p.eot.push({ id: uid(), name, srcId, pw: xval(r.pw, x), tg: xval(r.tg, x), kw: r.kw, target: r.target, other: r.other, qual: r.qual });
+  if (r.target === 'self' && !hostId) { toast(`${name} isn't attached to a creature.`); return false; }
+  p.eot.push({ id: uid(), name, srcId, hostId: hostId || null, pw: xval(r.pw, x), tg: xval(r.tg, x), kw: r.kw, target: r.target, other: r.other, qual: r.qual });
   return true;
 }
 const findSrc = (p, id) => p.creatures.find(c => c.id === id) || p.perms.find(c => c.id === id);
+// equipment and auras: permanents (on their controller's board) linked to the creature they're attached to, on any board
+const findPerm = id => { for (const q of S.players) { const pm = q.perms.find(x => x.id === id); if (pm) return { pm, owner: q }; } return {}; };
+const findCreature = id => { for (const q of S.players) { const c = q.creatures.find(x => x.id === id); if (c) return { c, owner: q }; } return {}; };
+const attachedTo = id => S.players.flatMap(q => q.perms.filter(pm => pm.host === id).map(pm => ({ pm, owner: q })));
+const attachKind = type => (/\bEquipment\b/.test(type || '') ? 'equipment' : /\bAura\b/.test(type || '') ? 'aura' : '');
+// creatures a permanent can attach to: equipment only to its controller's creatures, auras to anyone's
+function hostOptions(kind, owner, selected) {
+  const boards = kind === 'equipment' ? [owner] : S.players;
+  return `<option value="">${kind === 'aura' ? 'Not enchanting anything' : 'Not attached'}</option>` + boards.map(q => q.creatures.length
+    ? `<optgroup label="${esc(q.name)}">${q.creatures.map(c => `<option value="${c.id}" ${c.id === selected ? 'selected' : ''}>${esc(c.name)}${c.token ? ' ×' + c.count : ''}</option>`).join('')}</optgroup>` : '').join('');
+}
+// a creature left the battlefield: its equipment stays, unattached; its auras go to the graveyard
+function dropAttachments(c) {
+  const freed = [], gone = [];
+  S.players.forEach(q => {
+    q.perms = q.perms.filter(pm => {
+      if (pm.host !== c.id) return true;
+      if (pm.kind === 'aura') { gone.push(pm.name); return false; }
+      pm.host = null; freed.push(pm.name); return true;
+    });
+  });
+  const msg = [freed.length && `${freed.join(', ')} stay${freed.length > 1 ? '' : 's'} unattached`, gone.length && `${gone.join(', ')} went to the graveyard`].filter(Boolean);
+  if (msg.length) toast(msg.join(' · '));
+}
 const rowChips = (src, label) => (src.rows || []).map((r, i) => {
   const t = (label ? esc(src.name) + ': ' : '') + esc(describe(r));
   if (r.when === 'static')
@@ -460,7 +520,10 @@ const rowChips = (src, label) => (src.rows || []).map((r, i) => {
 function inPlay(p) {
   const perms = p.perms.map(pm => `<div class="perm">
       <div class="thumb" data-a="permEdit" data-pid="${pm.id}" title="Edit" ${pm.imgs && pm.imgs.length ? `style="background-image:url('${esc(pm.imgs[0])}')"` : ''}></div>
-      <div class="pb"><b>${esc(pm.name)}</b>${rowChips(pm) || '<span class="hint">No effect set. Tap ✎ to add one.</span>'}</div>
+      <div class="pb"><b>${esc(pm.name)}</b>
+        ${pm.kind ? `<label class="attto"><span>${pm.kind === 'aura' ? 'Enchanting' : 'Equipped to'}</span>
+          <select data-a="attachSel" data-pid="${pm.id}">${hostOptions(pm.kind, p, pm.host)}</select></label>` : ''}
+        ${rowChips(pm) || '<span class="hint">No effect set. Tap ✎ to add one.</span>'}</div>
       <div class="pa"><button data-a="permEdit" data-pid="${pm.id}" title="Edit">✎</button><button data-a="permDel" data-pid="${pm.id}" title="Remove from play">✕</button></div>
     </div>`);
   const chips = [
@@ -547,9 +610,15 @@ function tile(c) {
   const k = CALC[c.id];
   let faces = '';
   for (let i = c.token ? Math.min(c.count, 3) : 1; i >= 1; i--) faces += faceEl(c, i);
+  // equipment and auras peek out from behind the top of the card, like on a real table
+  const atts = attachedTo(c.id);
+  const peeks = atts.map(({ pm }, i) => `<div class="att ${pm.imgs && pm.imgs.length ? '' : 'blank'}" style="--i:${atts.length - i};${
+      pm.imgs && pm.imgs.length ? `background-image:url('${esc(pm.imgs[0])}')` : ''}" data-a="attEdit" data-pid="${pm.id}" title="${esc(pm.name)}">${
+      pm.imgs && pm.imgs.length ? '' : esc(pm.name)}</div>`).join('');
   const tl = [
     c.attacking && `<span class="ic atk" title="Attacking">⚔${c.token ? ' ' + c.attacking : ''}</span>`,
     c.sick && `<span class="ic" title="Summoning sick">💤${c.token ? ' ' + c.sick : ''}</span>`,
+    allTapped && atts.length && `<span class="ic" title="${esc(atts.map(a => a.pm.name).join(', '))}">📎${atts.length}</span>`,
   ];
   const bl = [
     c.counters && `<span class="ic ctr ${c.counters < 0 ? 'neg' : ''}" title="${c.counters > 0 ? '+1/+1' : '−1/−1'} counters">${c.counters > 0 ? '▲' : '▼'}${Math.abs(c.counters)}</span>`,
@@ -558,8 +627,8 @@ function tile(c) {
     ...kws(c).map(w => KW[w] && `<span class="ic" title="${esc(w)}">${KW[w]}</span>`),
     ...granted(c).map(w => KW[w] && `<span class="ic g" title="${esc(w)} (from an effect)">${KW[w]}</span>`),
   ];
-  return `<div class="tile ${allTapped ? 'tapped' : ''} ${c.attacking ? 'attacking' : ''}" data-id="${c.id}" data-a="strike" title="${esc(c.name)}">
-    ${faces}
+  return `<div class="tile ${allTapped ? 'tapped' : ''} ${c.attacking ? 'attacking' : ''}" data-id="${c.id}" data-a="strike" title="${esc(c.name)}" style="--att:${atts.length}">
+    ${peeks}${faces}
     <div class="ov tl">${tl.filter(Boolean).join('')}</div>
     <div class="ov bl">${bl.filter(Boolean).join('')}</div>
     <button class="info" data-a="info" title="Details">ⓘ</button>
@@ -599,6 +668,18 @@ function renderSheet() {
         <tr class="total"><td>Current</td><td>${P}/${T}</td></tr>
       </table>
       ${(c.rows || []).length ? `<div class="lbl">Effects it gives</div><div>${rowChips(c)}</div>` : ''}
+      <div class="lbl">Equipment and auras</div>
+      <div class="attlist">${attachedTo(c.id).map(({ pm, owner }) => `<div class="attrow">
+          <span class="th" ${pm.imgs && pm.imgs.length ? `style="background-image:url('${esc(pm.imgs[0])}')"` : ''}></span>
+          <span class="n">${esc(pm.name)}${owner !== S.players[S.view] ? ` <small>(${esc(owner.name)})</small>` : ''}<br><small>${
+            (pm.rows || []).filter(r => r.target === 'self').map(describe).map(esc).join('; ') || (pm.kind === 'aura' ? 'Aura' : 'Equipment')}</small></span>
+          <button data-a="attEdit" data-pid="${pm.id}" title="Edit">✎</button>
+          <button data-a="detach" data-pid="${pm.id}">${pm.kind === 'aura' ? 'Remove' : 'Unattach'}</button>
+        </div>`).join('')}
+        ${S.players[S.view].perms.filter(pm => pm.kind === 'equipment' && !pm.host)
+          .map(pm => `<button data-a="equipHere" data-pid="${pm.id}">🛠 Equip ${esc(pm.name)} here</button>`).join('')}
+        <button data-a="attachNew">＋ Attach equipment or an aura</button>
+      </div>
       <div class="lbl">Adjust</div>
       <div class="ctl">
         <div><div class="l">+1/+1 counters</div>${pill('ctr', '', num(c.counters))}</div>
@@ -670,7 +751,8 @@ const cardImgs = d => d.image_uris ? [d.image_uris.normal]
   : (d.card_faces || []).map(f => f.image_uris && f.image_uris.normal).filter(Boolean);
 const cardArt = d => ((d.image_uris || (d.card_faces && d.card_faces[0].image_uris) || {}).art_crop) || '';
 
-const WHO = [['mine', 'Your creatures'], ['mine-other', 'Your other creatures'], ['opps', "Opponents' creatures"], ['all', 'All creatures']];
+const WHO = [['mine', 'Your creatures'], ['mine-other', 'Your other creatures'], ['opps', "Opponents' creatures"], ['all', 'All creatures'],
+             ['self', 'The creature it’s attached to']];
 const WHEN = [['static', 'While it’s in play'], ['eot', 'Until end of turn, when it enters'], ['trigger', 'Until end of turn, each time it triggers']];
 function drawRows() {
   $('fxRows').innerHTML = fxRows.map((r, i) => `<div class="erow" data-i="${i}">
@@ -695,9 +777,19 @@ function readRows() {
 }
 $('fxAdd').onclick = () => {
   fxRows = readRows();
-  fxRows.push({ pw: 1, tg: 1, kw: '', target: 'mine', other: false, qual: '', when: mode === 'spell' ? 'eot' : 'static', on: true });
+  const attached = mode === 'perm' && $('fKind').value;
+  fxRows.push({ pw: 1, tg: 1, kw: '', target: attached ? 'self' : 'mine', other: false, qual: '', when: mode === 'spell' ? 'eot' : 'static', on: true });
   drawRows();
 };
+// equipment / aura: who it's attached to
+let presetHost = null, ownerP = null;
+function syncAttach(selected) {
+  $('fAttach').hidden = mode !== 'perm';
+  const k = $('fKind').value;
+  $('fHostWrap').style.visibility = k ? 'visible' : 'hidden';
+  $('fHost').innerHTML = hostOptions(k, ownerP || S.players[S.view], selected !== undefined ? selected : $('fHost').value);
+}
+$('fKind').onchange = () => syncAttach();
 $('fxRows').addEventListener('click', e => {
   const b = e.target.closest('.eDel'); if (!b) return;
   fxRows = readRows(); fxRows.splice(+b.dataset.i, 1); drawRows();
@@ -714,6 +806,7 @@ function setMode(m) {
   $('fxHint').textContent = creature ? 'For lords and enters-the-battlefield pumps. Most creatures have none.'
     : m === 'spell' ? 'Applied until end of turn when you cast it.' : 'Applied while it stays in play.';
   $('fSave').textContent = m === 'spell' ? 'Cast' : m === 'perm' && !editing ? 'Put in play' : 'Save';
+  syncAttach();
 }
 document.querySelectorAll('#fModes button').forEach(b => b.onclick = () => { setMode(b.dataset.m); });
 
@@ -727,13 +820,18 @@ function showImg() {
   $('navTxt').textContent = `${rIdx + 1} of ${results.length}`;
 }
 // kind: 'creature' | 'token' | 'perm' | 'spell'
-function openDlg(src, kind) {
+function openDlg(src, kind, opts = {}) {
   editing = src || null; art = src ? src.art || '' : ''; imgs = src ? src.imgs || [] : []; face = 0; results = [];
   type = src ? src.type || '' : ''; oracle = src ? src.oracle || '' : ''; colors = src ? src.colors || [] : [];
   fxRows = src ? JSON.parse(JSON.stringify(src.rows || [])) : [];
+  presetHost = opts.host || null;
+  ownerP = (src && findPerm(src.id).owner) || S.players[S.view];
+  $('fKind').value = src ? src.kind || '' : '';
   $('fModes').hidden = !!src;
   setMode(kind || 'creature');
-  $('dlgTitle').textContent = src ? 'Edit ' + src.name : kind === 'spell' ? 'Cast a spell' : 'Add a card';
+  syncAttach(src ? src.host || '' : presetHost || '');
+  $('dlgTitle').textContent = src ? 'Edit ' + src.name : kind === 'spell' ? 'Cast a spell'
+    : presetHost ? 'Attach to ' + findCreature(presetHost).c.name : 'Add a card';
   $('fName').value = src ? src.name : '';
   $('fP').value = src && src.bp != null ? src.bp : 0; $('fT').value = src && src.bt != null ? src.bt : 1;
   $('fKw').value = src ? src.kw || '' : ''; $('fCount').value = src ? src.count || 1 : 1;
@@ -753,6 +851,11 @@ function apply() {
     if (/\b(instant|sorcery)\b/i.test(type)) setMode('spell');
     else if (!/\bcreature\b/i.test(type)) setMode('perm');
     else if (mode !== 'creature') setMode('creature');
+  }
+  if (mode === 'perm') {
+    const k = attachKind(type);
+    if (k || !presetHost) $('fKind').value = k;
+    syncAttach(presetHost || undefined);
   }
   const f = d.power !== undefined ? d : (d.card_faces || []).find(x => x.power !== undefined);
   if (f) { $('fP').value = parseInt(f.power) || 0; $('fT').value = parseInt(f.toughness) || 0; }
@@ -833,6 +936,8 @@ dlg.addEventListener('close', () => {
     const applied = rows.filter(r => applyRow(p, name, r));
     toast(applied.length ? `${name}: ${applied.map(describe).join('; ')} until end of turn` : `${name}: nothing to apply`);
   } else if (mode === 'perm') {
+    const kind = $('fKind').value;
+    Object.assign(card, { kind, host: kind ? $('fHost').value || null : null });
     if (editing) Object.assign(editing, card);
     else p.perms.push({ id: uid(), ...card });
   } else {
@@ -854,12 +959,14 @@ dlg.addEventListener('close', () => {
 // ---------- events ----------
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-a]');
-  if (!el || el.type === 'checkbox') return;
+  if (!el || el.type === 'checkbox' || el.tagName === 'SELECT') return;
   if (el.closest('dialog') && !el.closest('#sheet')) return;
   act(el);
 });
 document.addEventListener('change', e => {
-  if (e.target.dataset.a === 'cmdLife') { S.cmdLife = e.target.checked; render(); }
+  const a = e.target.dataset.a;
+  if (a === 'cmdLife') { S.cmdLife = e.target.checked; render(); }
+  if (a === 'attachSel') { findPerm(e.target.dataset.pid).pm.host = e.target.value || null; render(); }
 });
 function act(el) {
   const a = el.dataset.a, d = parseInt(el.dataset.d), p = S.players[S.view];
@@ -892,17 +999,27 @@ function act(el) {
     case 'add': return openDlg();
     case 'cast': return openDlg(null, 'spell');
     case 'permEdit': return openDlg(p.perms.find(x => x.id === el.dataset.pid), 'perm');
-    case 'permDel': p.perms = p.perms.filter(x => x.id !== el.dataset.pid); break;
-    case 'fxToggle': { const r = findSrc(p, el.dataset.src).rows[+el.dataset.r]; r.on = r.on === false; break; }
+    case 'permDel': p.perms = p.perms.filter(x => x.id !== el.dataset.pid); break;    case 'fxToggle': { const r = findSrc(p, el.dataset.src).rows[+el.dataset.r]; r.on = r.on === false; break; }
     case 'fxFire': {
       const src = findSrc(p, el.dataset.src), r = src.rows[+el.dataset.r];
-      if (applyRow(p, src.name, r, src.id)) toast(`${src.name}: ${describe(r)} until end of turn`);
+      if (applyRow(p, src.name, r, src.id, src.host)) toast(`${src.name}: ${describe(r)} until end of turn`);
+      break;
+    }
+    case 'attEdit': { sheet.close(); return openDlg(findPerm(el.dataset.pid).pm, 'perm'); }
+    case 'attachNew': { const host = c.id; sheet.close(); return openDlg(null, 'perm', { host }); }
+    case 'equipHere': findPerm(el.dataset.pid).pm.host = c.id; break;
+    case 'detach': {
+      const { pm, owner } = findPerm(el.dataset.pid);
+      if (pm.kind === 'aura') owner.perms = owner.perms.filter(x => x !== pm);
+      else pm.host = null;
       break;
     }
     case 'eotDel': p.eot = p.eot.filter(x => x.id !== el.dataset.e); break;
     case 'untap': p.creatures.forEach(x => { x.tapped = 0; }); break;
     case 'clearAtk': p.creatures.forEach(x => { x.attacking = 0; }); break;
-    case 'delPlayer': if (confirm('Remove ' + p.name + '?')) { S.players.splice(S.view, 1); S.view = 0; S.active = 0; } break;
+    case 'delPlayer':
+      if (confirm('Remove ' + p.name + '?')) { S.players.splice(S.view, 1); p.creatures.forEach(dropAttachments); S.view = 0; S.active = 0; }
+      break;
     case 'ctr': c.counters += d; break;
     case 'eot': c.tp += d; c.tt += d; break;
     case 'adj': adj(c, el.dataset.f, d); break;
@@ -918,7 +1035,7 @@ function act(el) {
     }
     case 'tap': c.tapped = c.tapped ? 0 : 1; break;
     case 'sick': c.sick = c.sick ? 0 : 1; break;
-    case 'del': p.creatures = p.creatures.filter(x => x !== c); sheet.close(); break;
+    case 'del': p.creatures = p.creatures.filter(x => x !== c); dropAttachments(c); sheet.close(); break;
   }
   render();
   if (c) animTap(c.id, before, c.tapped >= c.count);
