@@ -184,12 +184,22 @@
   .pickbox .attrow { width:100%; text-align:left; cursor:pointer; min-height:0; }
   .pickbox .attrow .th { flex-basis:38px; }
   .pickbox .attrow b { font-variant-numeric:tabular-nums; }
+  .pickbox .attrow .tick { flex:0 0 22px; height:22px; border-radius:50%; border:2px solid var(--line); display:grid; place-items:center;
+                           font-size:13px; font-weight:800; color:transparent; }
+  .pickbox .attrow.sel { border-color:var(--gold); background:color-mix(in srgb, var(--gold) 14%, var(--panel2)); }
+  .pickbox .attrow.sel .tick { background:var(--gold); border-color:var(--gold); color:#1d1404; }
+  .pickbox .attrow:disabled { opacity:.45; cursor:default; }
+  #pickGo:disabled { opacity:.5; cursor:default; }
   /* in-app questions (kicked?, what is X?, rename) instead of the browser's own popups */
   #askDlg { width:min(400px,94vw); }
   #askText { margin:0; line-height:1.45; white-space:pre-line; }
   #askText q { display:block; margin-top:6px; color:var(--muted); font-style:italic; quotes:none; }
   .askbtns { display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; margin-top:4px; }
   .askbtns button { flex:1 1 120px; }
+  .askbtns.stack { flex-direction:column; }
+  .askbtns.stack button { flex:none; text-align:left; padding:10px 12px; }
+  .askbtns.stack button:not(:last-child) { background:var(--panel2); }
+  .askbtns.stack button.ghost:last-child { text-align:center; color:var(--muted); }
   button.danger { background:color-mix(in srgb, var(--lethal) 18%, var(--panel2)); border-color:var(--lethal); }
 
   /* dialogs */
@@ -449,7 +459,10 @@
     <h3 id="pickTitle">Choose a creature</h3>
     <small class="hint" id="pickWhat"></small>
     <div id="pickList" class="attlist"></div>
-    <button type="button" class="ghost" id="pickCancel">Cancel</button>
+    <div class="askbtns">
+      <button type="button" class="ghost" id="pickCancel">Cancel</button>
+      <button type="button" class="primary" id="pickGo" hidden></button>
+    </div>
   </div>
 </dialog>
 
@@ -603,7 +616,22 @@ function parseEffects(oracle, cardName) {
   // "If this spell was kicked, that creature gets +4/+4" with no pump before it (Vines of Vastwood): the creature it targeted
   const tgt0 = text.match(/\btarget (?:creature|permanent)(?: (you control|an opponent controls|you don't control))?/i);
   const NUM = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
-  for (let s of text.split(/\n|(?<=\.)\s+/)) {
+  // modal spells ("Choose one — • ... • ..."): each effect remembers its mode, and casting asks which was chosen
+  let modeOne = true;
+  const sentences = [];
+  for (const line of text.split('\n')) {
+    const cm = line.match(/^choose (one or both|one or more|any number|two|one)\b/i);
+    if (cm) modeOne = /^one$/i.test(cm[1]);
+    const bm = line.match(/^\s*•\s*/);
+    const mode = bm ? line.slice(bm[0].length).trim().replace(/\.$/, '') : '';
+    line.replace(/^\s*•\s*/, '').split(/(?<=\.)\s+/).forEach(x => sentences.push([x, mode]));
+  }
+  // Support N (reminder text was stripped): +1/+1 counters on up to N other target creatures
+  const sup = text.match(/^support (\d+)/im);
+  if (sup) rows.push({ pw: 1, tg: 1, kw: '', target: 'pick', other: true, qual: '', when: 'trigger', on: true, ctr: true, n: +sup[1], upTo: true });
+  for (let [s, mode] of sentences) {
+    const before = rows.length;
+    const tagMode = () => { if (mode) for (let i = before; i < rows.length; i++) { rows[i].mode = mode; rows[i].modeOne = modeOne; } };
     s = s.trim().replace(/\.$/, '');
     if (!s) continue;
     let when = 'static', on = true, m;
@@ -641,13 +669,16 @@ function parseEffects(oracle, cardName) {
     // "Creatures you control of the chosen color": the condition after "you control" needs the player to judge
     const tailM = subj.match(/^(.*?\s*(?:you control|your opponents control|you don't control))\s+(.+)$/i);
     if (tailM) { subj = tailM[1]; note = tailM[2]; on = false; }
+    const ofM = subj.match(/^(.*?)\s+(of the chosen (?:type|color))$/i); // "Creatures of the chosen type"
+    if (ofM) { subj = ofM[1]; note = ofM[2]; on = false; }
     const rest = m[2] + ' ' + m[3];
     // "Target creature gets +3/+3" (Giant Growth): the player picks the creature when it's cast or fired
-    const tm = subj.match(/^(?:up to one\s+)?(another\s+)?target\s+(.*?)\b(?:creature|permanent)(\s+token)?(?:\s+(you control|an opponent controls|you don't control))?$/i);
-    let side = '';
+    // also "two target creatures each get", "up to two target creatures", "each of one or two target creatures", "any number of target creatures"
+    const tm = subj.match(/^(?:each of\s+)?(up to\s+)?(?:(one or two|one or more|any number of|one|two|three|four|five|x|\d+)\s+)?(another\s+|other\s+)?target\s+(.*?)\b(?:creature|permanent)s?(\s+tokens?)?(?:\s+(you control|an opponent controls|you don't control|your opponents control))?(?:\s+each)?$/i);
+    let side = '', pickN = 1, pickUpTo = false;
     // "It gains trample until end of turn" right after: the same creature, so it joins that row
     const last = rows[rows.length - 1];
-    const pronoun = /^(it|that creature|that permanent)$/i.test(subj);
+    const pronoun = /^(it|they|that creature|that permanent|those creatures|each of them)$/i.test(subj);
     const sameOne = pronoun && last && last.target === 'pick';
     if (sameOne && !cond && !ctr && !last.cond) {
       const ptI = rest.match(/([+\-−]\d+)\/([+\-−]\d+)/), kmI = rest.match(/\b(?:have|has|gain|gains)\s+(.+?)(?=\s+and\s+gets?\b|\s+until\b|$)/i);
@@ -655,24 +686,27 @@ function parseEffects(oracle, cardName) {
       if (kmI) last.kw = [...kwSplit(last.kw), ...kmI[1].split(/,\s*(?:and\s+)?|\s+and\s+/).map(k => k.trim().toLowerCase()).filter(k => KW[k])].join(', ');
       continue;
     }
-    if (sameOne) { target = 'pick'; other = last.other; side = last.side || ''; if (last.qual) qual.push(last.qual); subj = ''; if (when === 'static') when = 'trigger'; }
+    if (sameOne) { target = 'pick'; other = last.other; side = last.side || ''; pickN = last.n || 1; pickUpTo = !!last.upTo; if (last.qual) qual.push(last.qual); subj = ''; if (when === 'static') when = 'trigger'; }
     else if (pronoun && tgt0) {
       target = 'pick'; subj = ''; if (when === 'static') when = 'trigger';
       side = /^you control/i.test(tgt0[1] || '') ? 'mine' : tgt0[1] ? 'opps' : '';
     }
     else if (pronoun && ctr) { target = 'itself'; subj = ''; } // "put a +1/+1 counter on it" (on itself)
     else if (tm) {
-      target = 'pick'; other = !!tm[1]; subj = '';
-      side = /^you control/i.test(tm[4] || '') ? 'mine' : tm[4] ? 'opps' : '';
-      const tq = tm[2].replace(/\b(?:artifact|enchantment|land|planeswalker) or\s+/gi, '').trim(); // "target artifact or creature": the creature part
+      target = 'pick'; other = !!tm[3]; subj = '';
+      side = /^you control/i.test(tm[6] || '') ? 'mine' : tm[6] ? 'opps' : '';
+      const cnt = (tm[2] || '').toLowerCase();
+      pickN = cnt === 'one or two' ? 2 : /^(one or more|any number of|x)$/.test(cnt) ? 99 : NUM[cnt] || parseInt(cnt) || 1;
+      pickUpTo = !!tm[1] || cnt === 'one or two';
+      const tq = tm[4].replace(/\b(?:artifact|enchantment|land|planeswalker) or\s+/gi, '').trim(); // "target artifact or creature": the creature part
       if (tq) qual.push(tq.replace(/\b(Attacking|Blocking|Tapped|Untapped|Nontoken|White|Blue|Black|Red|Green|Legendary|Artifact)\b/g, w => w.toLowerCase()));
-      if (tm[3]) qual.push('token');
+      if (tm[5]) qual.push('token');
       if (when === 'static') when = 'trigger'; // targeting is never a static ability
     }
     else if (/^(equipped|enchanted) creature$/i.test(subj)) { target = 'self'; subj = ''; }
     else if (selfNames.includes(subj.toLowerCase()) || /^this creature$/i.test(subj)) { target = 'itself'; subj = ''; }
     else {
-    if (/\b(target|enchanted|equipped|this|that|it|its|they|them|you|each player|players?)\b/i.test(subj.replace(/\b(you control|you don't control)\b/gi, ''))) continue;
+    if (/\b(target|enchanted|equipped|this|that|those|it|its|they|them|you|each player|players?)\b/i.test(subj.replace(/\b(you control|you don't control)\b/gi, ''))) continue;
     subj = subj.replace(/^each\s+/i, '');
     if (/^other\s+/i.test(subj)) { other = true; subj = subj.replace(/^other\s+/i, ''); }
     subj = subj.replace(/^all\s+/i, '');
@@ -697,6 +731,7 @@ function parseEffects(oracle, cardName) {
     const row = { pw: pt ? parsePT(pt[1]) : 0, tg: pt ? parsePT(pt[2]) : 0, kw: kwl.join(', '), target, other, qual: qual.join(' '), when, on };
     if (note) row.note = note;
     if (side) row.side = side;
+    if (pickN > 1) { row.n = pickN; if (pickUpTo) row.upTo = true; }
     if (ctr) row.ctr = true;
     if (cond && when === 'static') { row.on = false; row.note = `if ${cond}`; } // a lasting effect with a condition: the player switches it on
     else if (cond) { row.cond = cond; row.note = cond === 'kicked' ? 'if kicked' : 'if ' + cond; if (instead) row.instead = true; }
@@ -706,6 +741,7 @@ function parseEffects(oracle, cardName) {
       row.x = k ? k[0] : 'ask';
     }
     rows.push(row);
+    tagMode();
   }
   return rows;
 }
@@ -715,6 +751,14 @@ function parsePT(s) {
   if (/^-x$/i.test(s)) return '-X';
   return parseInt(s) || 0;
 }
+// "target creature", "up to two target creatures you control", "any number of target creatures"
+const NUMW = { 2: 'two', 3: 'three', 4: 'four', 5: 'five', 99: 'any number of' };
+function pickWho(r) {
+  const many = r.n > 1, q = (r.qual || '').replace(/\btoken\b/, '').trim();
+  const count = !many ? (r.other ? 'another ' : '') : `${r.upTo && r.n !== 99 ? 'up to ' : ''}${NUMW[r.n] || r.n} ${r.other ? 'other ' : ''}`;
+  const noun = /\btoken\b/.test(r.qual || '') ? 'creature token' : 'creature';
+  return `${count}target ${q ? q + ' ' : ''}${noun}${many ? 's' : ''}${r.side === 'mine' ? ' you control' : r.side === 'opps' ? ' an opponent controls' : ''}`;
+}
 function describe(r) {
   const n = r.pw === 'X' ? 'X' : r.pw;
   const pt = r.ctr ? (n === 1 ? 'a +1/+1 counter' : `${n} +1/+1 counters`) : r.pw || r.tg ? `${fmt(r.pw)}/${fmt(r.tg)}` : '';
@@ -722,7 +766,7 @@ function describe(r) {
   // "Zombies" already names creatures; "Elf" or "token" needs the word added
   const noun = /\b[A-Z][a-z]+s$/.test(r.qual || '') ? r.qual : `${r.qual ? r.qual + ' ' : ''}creatures`;
   const o = r.other ? 'other ' : '';
-  const who = r.hostName ? r.hostName : r.target === 'pick' ? `${r.other ? 'another ' : ''}target ${r.qual && r.qual !== 'token' ? r.qual + ' ' : ''}creature${r.qual && /token/.test(r.qual) ? ' token' : ''}${r.side === 'mine' ? ' you control' : r.side === 'opps' ? ' an opponent controls' : ''}`
+  const who = r.hostName ? r.hostName : r.target === 'pick' ? pickWho(r)
     : r.target === 'self' ? 'the creature it’s attached to' : r.target === 'itself' ? 'itself'
     : r.target === 'opps' ? `opponents' ${noun}` : r.target === 'all' ? `all ${o}${noun}` : `your ${o}${noun}`;
   const per = r.per ? ` for each ${r.perMinus ? 'other ' : ''}${countLabel(r.per)}` : '';
@@ -737,7 +781,8 @@ const describeNow = (r, p) => {
 };
 // An in-app question. buttons: [{ label, value, primary, danger }]; value 'input' answers with the typed text.
 // Resolves to the chosen value, or null if dismissed (Esc / tapping outside).
-function ask({ title, text = '', html = '', input = null, buttons }) {
+function ask({ title, text = '', html = '', input = null, buttons, stack = false }) {
+  $('askBtns').classList.toggle('stack', stack);
   const d = $('askDlg'), inp = $('askInput');
   $('askTitle').textContent = title;
   if (html) $('askText').innerHTML = html; else $('askText').textContent = text;
@@ -769,22 +814,25 @@ async function applyRow(p, name, r, srcId, hostId, hostName) {
   }
   if (r.target === 'itself') hostId = srcId;
   if (r.target === 'self' && !hostId) { toast(`${name} isn't attached to a creature.`); return false; }
+  const used = v; // returned so the same numbers can go on the next creature ("two target creatures")
   if (r.ctr) {
     // +1/+1 counters stay on the creature; any keywords that come with them last until end of turn
     const hit = r.target === 'self' || r.target === 'itself' ? [findCreature(hostId).c].filter(Boolean)
       : S.players.filter(q => r.target === 'all' || (r.target === 'mine') === (q === p))
           .flatMap(q => q.creatures.filter(c => qualMatch(c, r.qual) && !(r.other && c.id === srcId)));
     hit.forEach(c => { c.counters = Math.max(0, c.counters + (+v.pw || 0)); });
-    if (!r.kw) return hit.length > 0;
+    if (!r.kw) return hit.length > 0 && used;
     v = { pw: 0, tg: 0 };
   }
   const e = { id: uid(), name, srcId, hostId: hostId || null, pw: v.pw, tg: v.tg, kw: r.kw, target: r.target, other: r.other, qual: r.qual };
   if (hostName) e.hostName = hostName;
   p.eot.push(e);
-  return true;
+  return used;
 }
-// "Target creature gets ...": ask which creature (on any board), resolving to { c, owner } or null
+// "Target creature gets ...": ask which creature (on any board), resolving to a list of { c, owner }, or null if cancelled.
+// For "two target creatures" (r.n > 1) the player ticks up to that many, then confirms.
 function pickCreature(name, r, p, srcId) {
+  const many = r.n > 1;
   const boards = S.players.filter(q => r.side === 'mine' ? q === p : r.side === 'opps' ? q !== p : true);
   const ok = c => qualMatch(c, r.qual) && !(r.other && c.id === srcId);
   const groups = boards.map(q => [q, q.creatures.filter(ok)]).filter(([, cs]) => cs.length);
@@ -792,17 +840,38 @@ function pickCreature(name, r, p, srcId) {
   recalc();
   const pd = $('pickDlg');
   $('pickTitle').textContent = name;
-  $('pickWhat').textContent = `Choose who gets ${describe({ ...r, note: '' }).split(' → ')[0]}${r.ctr && !r.kw ? '' : ' until end of turn'}`;
+  const gets = `${describe({ ...r, note: '' }).split(' → ')[0]}${r.ctr && !r.kw ? '' : ' until end of turn'}`;
+  $('pickWhat').textContent = !many ? `Choose who gets ${gets}`
+    : `Choose ${r.n === 99 ? 'any number of' : (r.upTo ? 'up to ' : '') + (NUMW[r.n] || r.n)} creatures: each gets ${gets}`;
   $('pickList').innerHTML = groups.map(([q, cs]) => `<h4>${esc(q.name)}</h4>` + cs.map(c => `<button type="button" class="attrow" data-id="${c.id}">
-      <span class="th" style="background-image:url('${esc(((c.imgs && c.imgs[0]) || c.art || '').replace(/'/g, '%27'))}')"></span>
+      ${many ? '<span class="tick">✓</span>' : ''}<span class="th" style="background-image:url('${esc(((c.imgs && c.imgs[0]) || c.art || '').replace(/'/g, '%27'))}')"></span>
       <span class="n">${esc(c.name)}${c.token ? ` <small>×${c.count}</small>` : ''}${c.tapped ? ' <small>· tapped</small>' : ''}</span>
       <b>${pow(c)}/${tou(c)}</b></button>`).join('')).join('');
+  const go = $('pickGo'), picked = new Set();
+  go.hidden = !many;
+  // "two target creatures" (not "up to"): the full number when there are that many to choose from
+  const need = many && !r.upTo ? Math.min(r.n, groups.reduce((a, [, cs]) => a + cs.length, 0)) : 1;
+  const sync = () => {
+    go.disabled = picked.size < need;
+    go.textContent = picked.size ? `Apply to ${picked.size}` : 'Apply';
+    $('pickList').querySelectorAll('[data-id]').forEach(b => {
+      b.classList.toggle('sel', picked.has(b.dataset.id));
+      b.disabled = !picked.has(b.dataset.id) && picked.size >= r.n;
+    });
+  };
+  if (many) sync();
   return new Promise(res => {
     let chosen = null;
-    $('pickList').onclick = ev => { const b = ev.target.closest('[data-id]'); if (b) { chosen = findCreature(b.dataset.id); pd.close(); } };
+    $('pickList').onclick = ev => {
+      const b = ev.target.closest('[data-id]'); if (!b) return;
+      if (!many) { chosen = [b.dataset.id]; pd.close(); return; }
+      if (picked.has(b.dataset.id)) picked.delete(b.dataset.id); else if (picked.size < r.n) picked.add(b.dataset.id);
+      sync();
+    };
+    go.onclick = () => { chosen = [...picked]; pd.close(); };
     $('pickCancel').onclick = () => pd.close();
     pd.onclick = e => { if (e.target === pd) pd.close(); }; // tap outside the box
-    pd.onclose = () => res(chosen && chosen.c ? chosen : null);
+    pd.onclose = () => res(chosen ? chosen.map(findCreature).filter(x => x.c) : null);
     pd.showModal();
   });
 }
@@ -810,6 +879,19 @@ const doneText = rs => rs.map(r => describe(r) + (r.ctr && !r.kw ? '' : ' until 
 // apply a card's until-end-of-turn rows, asking for the creature on "target creature" rows; returns what was applied
 async function applyRows(p, name, rows, srcId, hostId) {
   const done = [];
+  // modal spells: "choose one" asks which mode; "choose one or more" asks about each mode it can track
+  const modes = [...new Set(rows.filter(r => r.mode).map(r => r.mode))];
+  if (modes.length && rows.find(r => r.mode).modeOne) {
+    const m = await ask({ title: name, text: 'Which mode did you choose?',
+      stack: true, buttons: [...modes.map(x => ({ label: x, value: x })), { label: 'A different mode (nothing to track)', value: '' }] });
+    if (m === null) return done;
+    rows = rows.filter(r => !r.mode || r.mode === m);
+  } else for (const md of modes) {
+    const y = await ask({ title: name, html: `Did you choose this mode?<q>${esc(md)}</q>`,
+      buttons: [{ label: 'No', value: false }, { label: 'Yes', value: true, primary: true }] });
+    if (y === null) return done;
+    if (!y) rows = rows.filter(r => r.mode !== md);
+  }
   // kicker and other "if ..." upgrades: ask once per condition; "instead" replaces the plain version
   for (const cd of [...new Set(rows.filter(r => r.cond).map(r => r.cond))]) {
     const gives = rs => rs.map(r => describe({ ...r, note: '', hostName: '' }).split(' → ')[0]).join(', ');
@@ -823,8 +905,18 @@ async function applyRows(p, name, rows, srcId, hostId) {
   }
   for (const r of rows) {
     if (r.target !== 'pick') { if (await applyRow(p, name, r, srcId, hostId)) done.push(r); continue; }
-    const ch = await pickCreature(name, r, p, srcId);
-    if (ch && await applyRow(p, name, { ...r, target: 'self' }, srcId, ch.c.id, ch.c.name)) done.push({ ...r, hostName: ch.c.name, note: r.cond === 'kicked' ? 'kicked' : '' });
+    const chosen = await pickCreature(name, r, p, srcId);
+    if (!chosen) continue;
+    // X is asked once, then the same pump goes on each chosen creature
+    let row = { ...r, target: 'self' };
+    const hit = [];
+    for (const ch of chosen) {
+      const used = await applyRow(p, name, row, srcId, ch.c.id, ch.c.name);
+      if (!used) break;
+      hit.push(ch.c.name);
+      row = { ...row, pw: used.pw, tg: used.tg, per: '', x: null };
+    }
+    if (hit.length) done.push({ ...r, hostName: hit.join(', '), note: r.cond === 'kicked' ? 'kicked' : '' });
   }
   return done;
 }
@@ -1210,6 +1302,8 @@ function readRows() {
     if (typeof r.pw === 'string' || typeof r.tg === 'string') r.x = prev.x || 'ask';
     if (prev.note) r.note = prev.note;
     if (prev.side && who === 'pick') r.side = prev.side;
+    if (prev.n && who === 'pick') { r.n = prev.n; if (prev.upTo) r.upTo = true; }
+    if (prev.mode) { r.mode = prev.mode; r.modeOne = prev.modeOne; }
     if (prev.cond) { r.cond = prev.cond; if (prev.instead) r.instead = true; }
     const ctrBox = el.querySelector('.eCtr input');
     if (ctrBox && ctrBox.checked) { r.ctr = true; r.tg = r.pw; }
@@ -1284,6 +1378,7 @@ function openDlg(src, kind, opts = {}) {
   $('fKw').value = src ? src.kw || '' : ''; $('fCount').value = src ? src.count || 1 : 1;
   $('fStar').value = src && src.star ? src.star.kind || '' : ''; starSides = src && src.star ? src.star : null;
   $('fMsg').textContent = ''; hideSugg(); drawRows(); showImg();
+  dlg.returnValue = ''; // so closing with Esc / back doesn't repeat the last Save or Cast
   dlg.showModal(); $('fName').focus();
 }
 
