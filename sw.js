@@ -12,8 +12,8 @@ const SHELL = [
   "/icons/icon-192.png",
   "/icons/icon-512.png",
 ];
-// card images and Google Fonts never change at a given URL, so they're served from the cache first
-const ASSET_HOSTS = ["cards.scryfall.io", "fonts.googleapis.com", "fonts.gstatic.com"];
+// card images, Google Fonts and the Mana icon font (pinned version) never change at a given URL, so they're served from the cache first
+const ASSET_HOSTS = ["cards.scryfall.io", "fonts.googleapis.com", "fonts.gstatic.com", "cdn.jsdelivr.net"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.addAll(SHELL)));

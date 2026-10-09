@@ -13,6 +13,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/mana-font@1.18.0/css/mana.min.css" rel="stylesheet">
 <style>
   :root {
     --bg0:#efe6d2; --bg1:#f8f1e3; --panel:#fffaf0; --panel2:#f1e7d2; --text:#2a2216; --muted:#7d705a; --line:#d9cbae;
@@ -161,6 +162,10 @@
   .ic.eot { background:#1c7ed6; color:#fff; }
   .ic.anth { background:linear-gradient(180deg,var(--gold2),var(--gold)); color:#1d1404; }
   .ic.g { box-shadow:0 0 0 2px var(--gold), 0 2px 6px rgba(0,0,0,.35); }
+  .ic { justify-content:center; }
+  .ic .ms { font-size:15px; line-height:1; }
+  .ic.g .ms { color:#f3d48a; } /* granted by an effect: gold icon in the gold ring */
+  .kw .ms { font-size:14px; line-height:1; vertical-align:-2px; margin-right:2px; }
   .info { position:absolute; z-index:3; top:5px; right:5px; width:32px; height:32px; min-height:0; padding:0; border-radius:50%;
           background:rgba(12,12,16,.82); color:#f3ead6; border:1px solid rgba(255,255,255,.2); font-weight:700; }
   .qty { position:absolute; z-index:3; top:42px; right:5px; font-family:var(--display); font-weight:800; font-size:14px;
@@ -469,8 +474,12 @@
 <script>
 const KEY = 'commander-board-tracker-v2';
 const ACC = ['#d9a94a', '#4dabf7', '#ff6b6b', '#51cf66', '#b197fc', '#ff922b'];
-const KW = { flying: '🕊', vigilance: '👁', deathtouch: '☠', lifelink: '❤', haste: '⚡', trample: '🐾', reach: '🏹',
-             menace: '😈', 'first strike': '🗡', 'double strike': '⚔⚔', hexproof: '🛡', indestructible: '◆', ward: '🔰', defender: '🧱', shroud: '🌫' };
+// keyword icons from the Mana icon font (mana.andrewgioia.com); also the list of keywords the tracker recognises
+const msIcon = name => `<i class="ms ms-ability-${name}" aria-hidden="true"></i>`;
+const KW = Object.fromEntries(['flying', 'vigilance', 'deathtouch', 'lifelink', 'haste', 'trample', 'reach', 'menace', 'first strike',
+  'double strike', 'hexproof', 'indestructible', 'ward', 'defender', 'shroud', 'infect', 'prowess', 'changeling']
+  .map(k => [k, msIcon(k.replace(/ /g, '-'))]));
+const SICK = msIcon('summoning-sickness');
 const COLORS = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
 const BOLT = '<svg class="bolt" viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 1 3 9h4.2L6 15l7-8.4H8.6L9.5 1z"/></svg>';
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -1098,7 +1107,7 @@ function tile(c) {
   const tl = [
     c.attacking && `<span class="ic atk" title="Attacking">⚔${c.token ? ' ' + c.attacking : ''}</span>`,
     c.cmdr && '<span class="ic cm" title="Commander">♛</span>',
-    c.sick && `<span class="ic" title="Summoning sick">💤${c.token ? ' ' + c.sick : ''}</span>`,
+    c.sick && `<span class="ic" title="Summoning sick">${SICK}${c.token ? ' ' + c.sick : ''}</span>`,
     c.dmg && `<span class="ic dmg" title="Damage marked until end of turn">🩸${c.dmg}</span>`,
     allTapped && atts.length && `<span class="ic" title="${esc(atts.map(a => a.pm.name).join(', '))}">📎${atts.length}</span>`,
   ];
@@ -1592,7 +1601,7 @@ function cAttack(cb, ap, foes) {
     <div class="crow">${ap.creatures.map(c => {
       const t = c.attacking && cb.atk[c.id] ? pl(cb.atk[c.id]) : null;
       const can = c.attacking || c.count - c.tapped - (has(c, 'haste') ? 0 : c.sick) > 0;
-      const tags = (t ? `<span class="ic dot" style="--tc:${t.color}">→ ${esc(shortName(t.name))}</span>` : '') + (c.sick ? '<span class="ic" title="Summoning sick">💤</span>' : '');
+      const tags = (t ? `<span class="ic dot" style="--tc:${t.color}">→ ${esc(shortName(t.name))}</span>` : '') + (c.sick ? `<span class="ic" title="Summoning sick">${SICK}</span>` : '');
       return `<div class="cwrap" data-id="${c.id}">${mini(c, { cls: `${t ? 'attacking' : ''} ${can ? '' : 'cant'}`, tags, a: 'cAtk', tc: t ? t.color : '' })}
         ${c.token && t ? pill('adj', 'attacking', `⚔ ${c.attacking} of ${c.count}`) : ''}</div>`;
     }).join('') || '<div class="empty">No creatures to attack with.</div>'}</div>
