@@ -189,6 +189,11 @@
   .big img, .big .face.blank { width:100%; display:block; border-radius:4.75% / 3.5%; box-shadow:var(--shadow); }
   .big .face.blank { position:relative; aspect-ratio:488/680; }
   .big .flip { margin-top:8px; width:100%; }
+  .pnav { display:flex; align-items:center; gap:6px; margin-top:8px; }
+  .pnav span { flex:1; text-align:center; font-size:13px; color:var(--muted); line-height:1.25; }
+  .pnav span small, .navset { display:block; font-size:12px; color:var(--text); }
+  .pnav button { min-height:32px; padding:2px 12px; }
+  .navset { text-align:center; min-height:16px; }
   .d h3 { margin:0; padding-right:40px; font-family:var(--display); font-size:22px; }
   .type { color:var(--muted); font-size:13px; margin:2px 0 10px; }
   .oracle { white-space:pre-line; font-size:13.5px; background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
@@ -400,6 +405,7 @@
       <div class="nav" id="fNav" hidden>
         <button type="button" id="prev">◀</button><span id="navTxt"></span><button type="button" id="next">▶</button>
       </div>
+      <small class="navset" id="navSet"></small>
       <button type="button" id="fFlip" hidden>⟲ Flip card</button>
     </div>
     <div class="foot">
@@ -865,6 +871,8 @@ function renderSheet() {
   sheet.innerHTML = `<div class="sheet">
     <div class="big">
       ${imgs.length ? `<img src="${esc(imgs[sheetFace] || imgs[0])}" alt="${esc(c.name)}">` : faceEl(c, 1).replace('face front', 'face')}
+      ${imgs.length && (c.oid || !c.token) ? `<div class="pnav"><button data-a="pStep" data-d="-1" title="Previous printing">◀</button>
+        <span>${esc(printPos(c))}<small>${esc(c.setLabel || '')}</small></span><button data-a="pStep" data-d="1" title="Next printing">▶</button></div>` : ''}
       ${imgs.length > 1 ? '<button class="flip" data-a="flip">⟲ Flip card</button>' : ''}
     </div>
     <div class="d">
@@ -960,10 +968,46 @@ function adj(c, f, d) {
 const dlg = $('dlg');
 let editing = null, mode = 'creature', art = '', imgs = [], face = 0, type = '', oracle = '', colors = [];
 let fxRows = [], results = [], rIdx = 0, sugg = [], sIdx = -1, tmr;
+let oid = '', setLabel = '', prints = [], pIdx = -1; // the card's Scryfall oracle id, and its printings once loaded
 const isTok = () => mode === 'token';
 const cardImgs = d => d.image_uris ? [d.image_uris.normal]
   : (d.card_faces || []).map(f => f.image_uris && f.image_uris.normal).filter(Boolean);
 const cardArt = d => ((d.image_uris || (d.card_faces && d.card_faces[0].image_uris) || {}).art_crop) || '';
+
+// ---------- printings (different art / sets of the same card) ----------
+const PRINTS = {}; // loaded once per card, newest first
+const printLabel = d => [d.set_name, (d.released_at || '').slice(0, 4)].filter(Boolean).join(' · ');
+const samePic = (a, b) => (a || '').split('?')[0] === (b || '').split('?')[0];
+async function loadPrints(src) {
+  // the oracle id pins down exactly this card (tokens included); older saves only have the name
+  const key = src.oid || src.name;
+  if (PRINTS[key]) return PRINTS[key];
+  const q = src.oid ? `oracleid:${src.oid}` : `!"${src.name.split(' // ')[0]}"`;
+  const r = await fetch('https://api.scryfall.com/cards/search?unique=prints&include_extras=true&order=released&dir=desc&q='
+    + encodeURIComponent(q)).then(x => x.json());
+  return (PRINTS[key] = (r.data || []).filter(d => cardImgs(d).length));
+}
+// "Printing 3 of 18" for a card on the board, once its printings have been loaded
+const printPos = c => {
+  const list = PRINTS[c.oid || c.name];
+  if (!list) return 'Other printings';
+  const i = list.findIndex(d => samePic(cardImgs(d)[0], (c.imgs || [])[0]));
+  return `Printing ${i + 1 || 1} of ${list.length}`;
+};
+// change the art of a card already in play (creature or permanent); it updates everywhere it's shown
+async function stepCardPrint(c, d) {
+  const lbl = sheet.querySelector('.pnav span');
+  if (lbl) lbl.textContent = 'Loading printings…';
+  try {
+    const list = await loadPrints(c);
+    if (list.length < 2) { toast('This card only has one printing.'); renderSheet(); return; }
+    const i = Math.max(0, list.findIndex(x => samePic(cardImgs(x)[0], (c.imgs || [])[0])));
+    const p = list[(i + d + list.length) % list.length];
+    c.imgs = cardImgs(p); c.art = cardArt(p); c.setLabel = printLabel(p);
+    sheetFace = 0;
+  } catch { toast("Couldn't load printings (offline?)"); }
+  render(); if (sheet.open) renderSheet();
+}
 
 const WHO = [['mine', 'Your creatures'], ['mine-other', 'Your other creatures'], ['opps', "Opponents' creatures"], ['all', 'All creatures'],
              ['self', 'The creature it’s attached to'], ['itself', 'This creature itself']];
@@ -1040,12 +1084,16 @@ function showImg() {
   el.style.backgroundImage = imgs.length ? `url('${imgs[face]}')` : '';
   el.textContent = imgs.length ? '' : 'Search for a card to see it here';
   $('fFlip').hidden = imgs.length < 2;
-  $('fNav').hidden = results.length < 2;
-  $('navTxt').textContent = `${rIdx + 1} of ${results.length}`;
+  const variants = isTok() && results.length > 1;
+  $('fNav').hidden = !variants && !(imgs.length && (oid || $('fName').value.trim()));
+  $('navTxt').textContent = variants ? `Token ${rIdx + 1} of ${results.length}`
+    : prints.length ? `Printing ${pIdx + 1} of ${prints.length}` : 'Other printings';
+  $('navSet').textContent = variants ? '' : setLabel;
 }
 // kind: 'creature' | 'token' | 'perm' | 'spell'
 function openDlg(src, kind, opts = {}) {
   editing = src || null; art = src ? src.art || '' : ''; imgs = src ? src.imgs || [] : []; face = 0; results = [];
+  oid = src ? src.oid || '' : ''; setLabel = src ? src.setLabel || '' : ''; prints = []; pIdx = -1;
   type = src ? src.type || '' : ''; oracle = src ? src.oracle || '' : ''; colors = src ? src.colors || [] : [];
   fxRows = src ? JSON.parse(JSON.stringify(src.rows || [])) : [];
   presetHost = (opts && opts.host) || null;
@@ -1070,6 +1118,7 @@ function apply() {
   oracle = d.oracle_text != null ? d.oracle_text : (d.card_faces || []).map(x => x.oracle_text).filter(Boolean).join('\n\n');
   colors = d.colors || (d.card_faces && d.card_faces[0].colors) || [];
   imgs = cardImgs(d); art = cardArt(d); face = 0;
+  oid = d.oracle_id || (d.card_faces && d.card_faces[0].oracle_id) || ''; setLabel = printLabel(d); prints = []; pIdx = -1;
   // pick the right kind of card for what was found
   if (!editing && !isTok()) {
     if (/\b(instant|sorcery)\b/i.test(type)) setMode('spell');
@@ -1125,8 +1174,22 @@ async function lookup() {
   } catch { $('fMsg').textContent = 'Search failed (offline?). Enter details yourself.'; }
 }
 $('lookup').onclick = lookup;
-$('prev').onclick = () => { rIdx = (rIdx - 1 + results.length) % results.length; apply(); };
-$('next').onclick = () => { rIdx = (rIdx + 1) % results.length; apply(); };
+// ◀ ▶: different tokens with the same name, or other printings (art) of the same card
+async function stepNav(d) {
+  if (isTok() && results.length > 1) { rIdx = (rIdx + d + results.length) % results.length; apply(); return; }
+  $('navTxt').textContent = 'Loading printings…';
+  try {
+    const list = await loadPrints({ oid, name: $('fName').value.trim(), token: isTok() });
+    if (list.length < 2) { toast('This card only has one printing.'); showImg(); return; }
+    if (prints !== list) { prints = list; pIdx = Math.max(0, list.findIndex(x => samePic(cardImgs(x)[0], imgs[0]))); }
+    pIdx = (pIdx + d + list.length) % list.length;
+    const p = list[pIdx];
+    imgs = cardImgs(p); art = cardArt(p); face = 0; setLabel = printLabel(p);
+  } catch { toast("Couldn't load printings (offline?)"); }
+  showImg();
+}
+$('prev').onclick = () => stepNav(-1);
+$('next').onclick = () => stepNav(1);
 $('fFlip').onclick = () => { face = (face + 1) % imgs.length; showImg(); };
 
 // autocomplete
@@ -1163,7 +1226,7 @@ dlg.addEventListener('close', () => {
   if (dlg.returnValue !== 'ok' || !name) return;
   const p = S.players[S.view];
   const rows = readRows().filter(r => r.pw || r.tg || r.kw);
-  const card = { name, art, imgs, type, oracle, colors, rows };
+  const card = { name, art, imgs, type, oracle, colors, rows, oid, setLabel };
   if (mode === 'spell') {
     const applied = rows.filter(r => applyRow(p, name, r));
     toast(applied.length ? `${name}: ${applied.map(describe).join('; ')} until end of turn` : `${name}: nothing to apply`);
@@ -1581,6 +1644,7 @@ function act(el) {
     case 'info': sheetId = c.id; sheetFace = 0; renderSheet(); sheet.showModal(); return;
     case 'close': sheet.close(); return;
     case 'flip': sheetFace = (sheetFace + 1) % c.imgs.length; renderSheet(); return;
+    case 'pStep': stepCardPrint(c, d); return;
     case 'edit': sheet.close(); return openDlg(c, c.token ? 'token' : 'creature');
     case 'view': S.view = parseInt(el.dataset.i); break;
     case 'rename': { const n = prompt('Player name', p.name); if (n) p.name = n.trim(); break; }
