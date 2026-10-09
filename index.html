@@ -176,6 +176,15 @@
            border:1px solid var(--gold); padding:10px 16px; border-radius:12px; box-shadow:var(--shadow); opacity:0; transition:opacity .2s; pointer-events:none; }
   .toast.show { opacity:1; }
 
+  /* "target creature": choosing which creature an effect goes on */
+  #pickDlg { width:min(460px,94vw); }
+  .pickbox { padding:16px; display:grid; gap:10px; }
+  .pickbox h3 { margin:0; font-family:var(--display); color:var(--gold); }
+  .pickbox h4 { margin:6px 0 0; font-size:13px; color:var(--muted); font-weight:600; }
+  .pickbox .attrow { width:100%; text-align:left; cursor:pointer; min-height:0; }
+  .pickbox .attrow .th { flex-basis:38px; }
+  .pickbox .attrow b { font-variant-numeric:tabular-nums; }
+
   /* dialogs */
   dialog { background:var(--panel); color:var(--text); border:1px solid var(--line); border-top:3px solid var(--gold); border-radius:18px;
            width:min(860px,94vw); max-height:92vh; overflow:auto; padding:0; box-shadow:0 20px 60px rgba(0,0,0,.5); }
@@ -221,6 +230,9 @@
   .modes button { flex:1 1 auto; border:0; background:transparent; min-height:32px; font-size:13px; font-weight:600; padding:4px 10px; }
   .modes button.sel { background:var(--panel); box-shadow:var(--shadow); color:var(--gold); }
   .three { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+  .three[hidden] { display:none; }
+  .erow .eCtr { display:flex; align-items:center; gap:6px; margin:0; font-size:13px; color:var(--text); text-transform:none; letter-spacing:0; }
+  .erow .eCtr input { width:auto; }
   .search { position:relative; display:flex; gap:6px; }
   .sugg { position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:5; background:var(--panel); border:1px solid var(--line);
           border-radius:12px; box-shadow:var(--shadow); max-height:240px; overflow:auto; padding:4px; }
@@ -416,6 +428,15 @@
   </form>
 </dialog>
 
+<dialog id="pickDlg">
+  <div class="pickbox">
+    <h3 id="pickTitle">Choose a creature</h3>
+    <small class="hint" id="pickWhat"></small>
+    <div id="pickList" class="attlist"></div>
+    <button type="button" class="ghost" id="pickCancel">Cancel</button>
+  </div>
+</dialog>
+
 <script>
 const KEY = 'commander-board-tracker-v2';
 const ACC = ['#d9a94a', '#4dabf7', '#ff6b6b', '#51cf66', '#b197fc', '#ff922b'];
@@ -515,7 +536,7 @@ function recalc() {
   EFFS = [];
   S.players.forEach(q => {
     [...q.creatures, ...q.perms].forEach(src => (src.rows || []).forEach(r => {
-      if (r.when !== 'static' || r.on === false) return;
+      if (r.when !== 'static' || r.on === false || r.target === 'pick') return;
       // "Equipped/enchanted creature gets ..." only counts while it's attached to something
       if (r.target === 'self' && !src.host) return;
       if (r.target === 'itself' && src.bp == null) return; // only a creature can buff itself
@@ -561,7 +582,11 @@ function parseEffects(oracle, cardName) {
   // a card refers to itself by its full name, or the part before the comma ("Multani gets ...")
   const selfNames = (cardName || '').split(' // ').flatMap(n => [n, n.split(',')[0]]).filter(Boolean).map(n => n.toLowerCase());
   const rows = [];
-  const text = (oracle || '').replace(/\([^)]*\)/g, '');
+  // reminder text and granted abilities in quotes ("When this creature dies, ...") aren't the card's own effects
+  const text = (oracle || '').replace(/\([^)]*\)/g, '').replace(/"[^"]*"|“[^”]*”/g, 'it');
+  // "If this spell was kicked, that creature gets +4/+4" with no pump before it (Vines of Vastwood): the creature it targeted
+  const tgt0 = text.match(/\btarget (?:creature|permanent)(?: (you control|an opponent controls|you don't control))?/i);
+  const NUM = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
   for (let s of text.split(/\n|(?<=\.)\s+/)) {
     s = s.trim().replace(/\.$/, '');
     if (!s) continue;
@@ -574,6 +599,21 @@ function parseEffects(oracle, cardName) {
     if ((m = s.match(/^[^:]*\{[^:]*:\s*/))) { when = /until end of turn/i.test(s) ? 'trigger' : when; s = s.slice(m[0].length); }
     if ((m = s.match(/^as long as [^,]*,\s*/i))) { on = false; s = s.slice(m[0].length); }
     if ((m = s.match(/^until end of turn,\s*/i))) { if (when === 'static') when = 'eot'; s = s.slice(m[0].length); }
+    // a condition (kicker, Groundswell's landfall, Might of Old Krosa's main phase): asked when it's cast;
+    // "instead" means it replaces the plain version
+    let cond = '', instead = false;
+    s = s.replace(/^[A-Z][\w' ]*\s+—\s+(?=if\b)/i, ''); // ability word ("Landfall — ")
+    if ((m = s.match(/^if (?:this spell|it) was kicked,\s*/i))) { cond = 'kicked'; s = s.slice(m[0].length); }
+    else if ((m = s.match(/^if ([^,]+),\s*/i))) { cond = m[1]; s = s.slice(m[0].length); }
+    if ((m = s.match(/^instead\s+/i))) { instead = true; s = s.slice(m[0].length); }
+    if (/\s+instead$/i.test(s)) { instead = true; s = s.replace(/\s+instead$/i, ''); }
+    // "Put a +1/+1 counter on target creature": read as a pump that's kept as counters
+    let ctr = false;
+    if ((m = s.match(/^put (a|an|one|two|three|four|five|six|x|\d+) \+1\/\+1 counters? on (.+)$/i))) {
+      const n = /^x$/i.test(m[1]) ? 'X' : NUM[m[1].toLowerCase()] || parseInt(m[1]);
+      s = `${m[2]} gets +${n}/+${n}`; ctr = true;
+      if (when === 'static') when = 'trigger';
+    }
     m = s.match(/^(.*?)\s+(gets?|have|has|gains?)\s+(.+)$/i);
     if (!m) continue;
     let subj = m[1].trim(), other = false, target = 'all', qual = [], note = '';
@@ -586,8 +626,35 @@ function parseEffects(oracle, cardName) {
     const tailM = subj.match(/^(.*?\s*(?:you control|your opponents control|you don't control))\s+(.+)$/i);
     if (tailM) { subj = tailM[1]; note = tailM[2]; on = false; }
     const rest = m[2] + ' ' + m[3];
-    if (/^(equipped|enchanted) creature$/i.test(subj)) { target = 'self'; subj = ''; }
-    else if (selfNames.includes(subj.toLowerCase())) { target = 'itself'; subj = ''; }
+    // "Target creature gets +3/+3" (Giant Growth): the player picks the creature when it's cast or fired
+    const tm = subj.match(/^(?:up to one\s+)?(another\s+)?target\s+(.*?)\b(?:creature|permanent)(\s+token)?(?:\s+(you control|an opponent controls|you don't control))?$/i);
+    let side = '';
+    // "It gains trample until end of turn" right after: the same creature, so it joins that row
+    const last = rows[rows.length - 1];
+    const pronoun = /^(it|that creature|that permanent)$/i.test(subj);
+    const sameOne = pronoun && last && last.target === 'pick';
+    if (sameOne && !cond && !ctr && !last.cond) {
+      const ptI = rest.match(/([+\-−]\d+)\/([+\-−]\d+)/), kmI = rest.match(/\b(?:have|has|gain|gains)\s+(.+?)(?=\s+and\s+gets?\b|\s+until\b|$)/i);
+      if (ptI) { last.pw = (+last.pw || 0) + parsePT(ptI[1]); last.tg = (+last.tg || 0) + parsePT(ptI[2]); }
+      if (kmI) last.kw = [...kwSplit(last.kw), ...kmI[1].split(/,\s*(?:and\s+)?|\s+and\s+/).map(k => k.trim().toLowerCase()).filter(k => KW[k])].join(', ');
+      continue;
+    }
+    if (sameOne) { target = 'pick'; other = last.other; side = last.side || ''; if (last.qual) qual.push(last.qual); subj = ''; if (when === 'static') when = 'trigger'; }
+    else if (pronoun && tgt0) {
+      target = 'pick'; subj = ''; if (when === 'static') when = 'trigger';
+      side = /^you control/i.test(tgt0[1] || '') ? 'mine' : tgt0[1] ? 'opps' : '';
+    }
+    else if (pronoun && ctr) { target = 'itself'; subj = ''; } // "put a +1/+1 counter on it" (on itself)
+    else if (tm) {
+      target = 'pick'; other = !!tm[1]; subj = '';
+      side = /^you control/i.test(tm[4] || '') ? 'mine' : tm[4] ? 'opps' : '';
+      const tq = tm[2].replace(/\b(?:artifact|enchantment|land|planeswalker) or\s+/gi, '').trim(); // "target artifact or creature": the creature part
+      if (tq) qual.push(tq.replace(/\b(Attacking|Blocking|Tapped|Untapped|Nontoken|White|Blue|Black|Red|Green|Legendary|Artifact)\b/g, w => w.toLowerCase()));
+      if (tm[3]) qual.push('token');
+      if (when === 'static') when = 'trigger'; // targeting is never a static ability
+    }
+    else if (/^(equipped|enchanted) creature$/i.test(subj)) { target = 'self'; subj = ''; }
+    else if (selfNames.includes(subj.toLowerCase()) || /^this creature$/i.test(subj)) { target = 'itself'; subj = ''; }
     else {
     if (/\b(target|enchanted|equipped|this|that|it|its|they|them|you|each player|players?)\b/i.test(subj.replace(/\b(you control|you don't control)\b/gi, ''))) continue;
     subj = subj.replace(/^each\s+/i, '');
@@ -596,7 +663,7 @@ function parseEffects(oracle, cardName) {
     if (/\s*you control$/i.test(subj)) { target = 'mine'; subj = subj.replace(/\s*you control$/i, ''); }
     else if (/\s*(your opponents control|you don't control)$/i.test(subj)) { target = 'opps'; subj = subj.replace(/\s*(your opponents control|you don't control)$/i, ''); }
     if (/\bcreature tokens$/i.test(subj)) { qual.push('token'); subj = subj.replace(/\s*\bcreature tokens$/i, ''); }
-    else if (/\bcreatures?$/i.test(subj)) subj = subj.replace(/\s*\bcreatures?$/i, '');
+    else if (/\b(creatures?|permanents)$/i.test(subj)) subj = subj.replace(/\s*\b(creatures?|permanents)$/i, '');
     else if (/\btokens$/i.test(subj)) { qual.push('token'); subj = subj.replace(/\s*\btokens$/i, ''); }
     else if (!/^[A-Z]/.test(subj)) continue; // "Elves you control" names a creature type; anything else isn't about creatures
     if (subj) qual.unshift(subj.replace(/\b(Attacking|Blocking|Tapped|Untapped|Nontoken|White|Blue|Black|Red|Green|Legendary|Artifact)\b/g, w => w.toLowerCase()));
@@ -613,6 +680,10 @@ function parseEffects(oracle, cardName) {
     }
     const row = { pw: pt ? parsePT(pt[1]) : 0, tg: pt ? parsePT(pt[2]) : 0, kw: kwl.join(', '), target, other, qual: qual.join(' '), when, on };
     if (note) row.note = note;
+    if (side) row.side = side;
+    if (ctr) row.ctr = true;
+    if (cond && when === 'static') { row.on = false; row.note = `if ${cond}`; } // a lasting effect with a condition: the player switches it on
+    else if (cond) { row.cond = cond; row.note = cond === 'kicked' ? 'if kicked' : 'if ' + cond; if (instead) row.instead = true; }
     if (per) { row.per = per[0]; if (per[1]) row.perMinus = per[1]; }
     if (/X/i.test(pt ? pt[0] : '')) {
       const wx = rest.match(/where x is the number of ([^.]+)/i), k = wx && countKind(wx[1]);
@@ -629,12 +700,14 @@ function parsePT(s) {
   return parseInt(s) || 0;
 }
 function describe(r) {
-  const pt = r.pw || r.tg ? `${fmt(r.pw)}/${fmt(r.tg)}` : '';
+  const n = r.pw === 'X' ? 'X' : r.pw;
+  const pt = r.ctr ? (n === 1 ? 'a +1/+1 counter' : `${n} +1/+1 counters`) : r.pw || r.tg ? `${fmt(r.pw)}/${fmt(r.tg)}` : '';
   const kw = r.kw ? (pt ? ' & ' : '') + r.kw : '';
   // "Zombies" already names creatures; "Elf" or "token" needs the word added
   const noun = /\b[A-Z][a-z]+s$/.test(r.qual || '') ? r.qual : `${r.qual ? r.qual + ' ' : ''}creatures`;
   const o = r.other ? 'other ' : '';
-  const who = r.target === 'self' ? 'the creature it’s attached to' : r.target === 'itself' ? 'itself'
+  const who = r.hostName ? r.hostName : r.target === 'pick' ? `${r.other ? 'another ' : ''}target ${r.qual && r.qual !== 'token' ? r.qual + ' ' : ''}creature${r.qual && /token/.test(r.qual) ? ' token' : ''}${r.side === 'mine' ? ' you control' : r.side === 'opps' ? ' an opponent controls' : ''}`
+    : r.target === 'self' ? 'the creature it’s attached to' : r.target === 'itself' ? 'itself'
     : r.target === 'opps' ? `opponents' ${noun}` : r.target === 'all' ? `all ${o}${noun}` : `your ${o}${noun}`;
   const per = r.per ? ` for each ${r.perMinus ? 'other ' : ''}${countLabel(r.per)}` : '';
   const x = typeof r.x === 'string' && r.x !== 'ask' ? `, X = number of ${plural(countLabel(r.x))}` : '';
@@ -647,7 +720,7 @@ const describeNow = (r, p) => {
   return `${describe(r)} · now ${fmt(v.pw)}/${fmt(v.tg)}`;
 };
 // Apply a row until end of turn (a spell, or a trigger); X and counts are fixed now.
-function applyRow(p, name, r, srcId, hostId) {
+function applyRow(p, name, r, srcId, hostId, hostName) {
   let v = rowVal(r, p);
   if ((typeof r.pw === 'string' || typeof r.tg === 'string') && (!r.x || r.x === 'ask')) {
     const a = prompt(`What is X for ${name}?`, '1');
@@ -655,9 +728,60 @@ function applyRow(p, name, r, srcId, hostId) {
     const x = parseInt(a) || 0;
     v = { pw: xval(r.pw, x), tg: xval(r.tg, x) };
   }
+  if (r.target === 'itself') hostId = srcId;
   if (r.target === 'self' && !hostId) { toast(`${name} isn't attached to a creature.`); return false; }
-  p.eot.push({ id: uid(), name, srcId, hostId: hostId || null, pw: v.pw, tg: v.tg, kw: r.kw, target: r.target, other: r.other, qual: r.qual });
+  if (r.ctr) {
+    // +1/+1 counters stay on the creature; any keywords that come with them last until end of turn
+    const hit = r.target === 'self' || r.target === 'itself' ? [findCreature(hostId).c].filter(Boolean)
+      : S.players.filter(q => r.target === 'all' || (r.target === 'mine') === (q === p))
+          .flatMap(q => q.creatures.filter(c => qualMatch(c, r.qual) && !(r.other && c.id === srcId)));
+    hit.forEach(c => { c.counters = Math.max(0, c.counters + (+v.pw || 0)); });
+    if (!r.kw) return hit.length > 0;
+    v = { pw: 0, tg: 0 };
+  }
+  const e = { id: uid(), name, srcId, hostId: hostId || null, pw: v.pw, tg: v.tg, kw: r.kw, target: r.target, other: r.other, qual: r.qual };
+  if (hostName) e.hostName = hostName;
+  p.eot.push(e);
   return true;
+}
+// "Target creature gets ...": ask which creature (on any board), resolving to { c, owner } or null
+function pickCreature(name, r, p, srcId) {
+  const boards = S.players.filter(q => r.side === 'mine' ? q === p : r.side === 'opps' ? q !== p : true);
+  const ok = c => qualMatch(c, r.qual) && !(r.other && c.id === srcId);
+  const groups = boards.map(q => [q, q.creatures.filter(ok)]).filter(([, cs]) => cs.length);
+  if (!groups.length) { toast(`${name}: no creature it can target`); return Promise.resolve(null); }
+  recalc();
+  const pd = $('pickDlg');
+  $('pickTitle').textContent = name;
+  $('pickWhat').textContent = `Choose who gets ${describe({ ...r, note: '' }).split(' → ')[0]}${r.ctr && !r.kw ? '' : ' until end of turn'}`;
+  $('pickList').innerHTML = groups.map(([q, cs]) => `<h4>${esc(q.name)}</h4>` + cs.map(c => `<button type="button" class="attrow" data-id="${c.id}">
+      <span class="th" style="background-image:url('${esc(((c.imgs && c.imgs[0]) || c.art || '').replace(/'/g, '%27'))}')"></span>
+      <span class="n">${esc(c.name)}${c.token ? ` <small>×${c.count}</small>` : ''}${c.tapped ? ' <small>· tapped</small>' : ''}</span>
+      <b>${pow(c)}/${tou(c)}</b></button>`).join('')).join('');
+  return new Promise(res => {
+    let chosen = null;
+    $('pickList').onclick = ev => { const b = ev.target.closest('[data-id]'); if (b) { chosen = findCreature(b.dataset.id); pd.close(); } };
+    $('pickCancel').onclick = () => pd.close();
+    pd.onclose = () => res(chosen && chosen.c ? chosen : null);
+    pd.showModal();
+  });
+}
+const doneText = rs => rs.map(r => describe(r) + (r.ctr && !r.kw ? '' : ' until end of turn')).join('; ');
+// apply a card's until-end-of-turn rows, asking for the creature on "target creature" rows; returns what was applied
+async function applyRows(p, name, rows, srcId, hostId) {
+  const done = [];
+  // kicker and other "if ..." upgrades: ask once per condition; "instead" replaces the plain version
+  for (const cd of [...new Set(rows.filter(r => r.cond).map(r => r.cond))]) {
+    const yes = confirm(cd === 'kicked' ? `Was ${name} kicked?` : `${name}: did this happen?\n\nIf ${cd}`);
+    rows = !yes ? rows.filter(r => r.cond !== cd)
+      : rows.some(r => r.cond === cd && r.instead) ? rows.filter(r => r.cond) : rows;
+  }
+  for (const r of rows) {
+    if (r.target !== 'pick') { if (applyRow(p, name, r, srcId, hostId)) done.push(r); continue; }
+    const ch = await pickCreature(name, r, p, srcId);
+    if (ch && applyRow(p, name, { ...r, target: 'self' }, srcId, ch.c.id, ch.c.name)) done.push({ ...r, hostName: ch.c.name, note: r.cond === 'kicked' ? 'kicked' : '' });
+  }
+  return done;
 }
 const findSrc = (p, id) => p.creatures.find(c => c.id === id) || p.perms.find(c => c.id === id);
 // equipment and auras: permanents (on their controller's board) linked to the creature they're attached to, on any board
@@ -1012,7 +1136,7 @@ async function stepCardPrint(c, d) {
 }
 
 const WHO = [['mine', 'Your creatures'], ['mine-other', 'Your other creatures'], ['opps', "Opponents' creatures"], ['all', 'All creatures'],
-             ['self', 'The creature it’s attached to'], ['itself', 'This creature itself']];
+             ['self', 'The creature it’s attached to'], ['itself', 'This creature itself'], ['pick', 'Target creature (you pick)']];
 const WHEN = [['static', 'While it’s in play'], ['eot', 'Until end of turn, when it enters'], ['trigger', 'Until end of turn, each time it triggers']];
 const plural = l => l.replace(/\b(creature|artifact|enchantment|land|card)\b/, '$1s');
 const perOptions = sel => `<option value="">Flat amount</option>` +
@@ -1027,6 +1151,7 @@ function drawRows() {
     <select class="eWho" aria-label="Applies to">${WHO.map(([v, l]) => `<option value="${v}" ${v === (r.other ? 'mine-other' : r.target) ? 'selected' : ''}>${l}</option>`).join('')}</select>
     <input class="eQual" type="text" value="${esc(r.qual || '')}" placeholder="only: Elf, token, attacking, white…">
     <select class="ePer" aria-label="Counts">${perOptions(r.per)}</select>
+    ${r.ctr ? '<label class="eCtr"><input type="checkbox" checked> as +1/+1 counters (they stay)</label>' : ''}
     <select class="eWhen" aria-label="How long">${WHEN.map(([v, l]) => `<option value="${v}" ${v === r.when ? 'selected' : ''}>${l}</option>`).join('')}</select>
     <button type="button" class="ghost eDel" data-i="${i}" title="Remove effect">✕</button>
   </div>`).join('');
@@ -1039,6 +1164,10 @@ function readRows() {
       qual: el.querySelector('.eQual').value.trim(), when: mode === 'spell' ? 'eot' : el.querySelector('.eWhen').value, on: prev.on !== false };
     if (typeof r.pw === 'string' || typeof r.tg === 'string') r.x = prev.x || 'ask';
     if (prev.note) r.note = prev.note;
+    if (prev.side && who === 'pick') r.side = prev.side;
+    if (prev.cond) { r.cond = prev.cond; if (prev.instead) r.instead = true; }
+    const ctrBox = el.querySelector('.eCtr input');
+    if (ctrBox && ctrBox.checked) { r.ctr = true; r.tg = r.pw; }
     const per = el.querySelector('.ePer').value;
     if (per) { r.per = per; if (prev.per === per && prev.perMinus) r.perMinus = prev.perMinus; }
     if (prev.x && prev.x !== 'ask' && r.x) r.x = prev.x;
@@ -1147,8 +1276,7 @@ function apply() {
   const found = fxRows.length ? ` Found ${fxRows.length} effect${fxRows.length > 1 ? 's' : ''}: check ${fxRows.length > 1 ? 'them' : 'it'} below.` : '';
   $('fMsg').textContent =
     mode === 'spell' ? (fxRows.length ? found.trim()
-        : /\btarget creature\b/i.test(oracle) ? "This targets one creature: use that creature's ⓘ → Until end of turn instead."
-        : "No board-wide effect found. Add one below if it has one.")
+        : "No effect on creatures found. Add one below if it has one.")
     : mode === 'perm' ? (found.trim() || 'No effect on creatures found. Add one below if it has one.')
     : !f ? 'This isn\'t a creature: set power/toughness yourself.' + found
     : isNaN(f.power) || isNaN(f.toughness) ? (sk
@@ -1223,15 +1351,15 @@ $('fName').addEventListener('keydown', e => {
 $('fName').addEventListener('blur', () => setTimeout(hideSugg, 150));
 $('sugg').addEventListener('pointerdown', e => { const o = e.target.closest('[data-i]'); if (o) { e.preventDefault(); pick(+o.dataset.i); } });
 
-dlg.addEventListener('close', () => {
+dlg.addEventListener('close', async () => {
   const name = $('fName').value.trim();
   if (dlg.returnValue !== 'ok' || !name) return;
   const p = S.players[S.view];
   const rows = readRows().filter(r => r.pw || r.tg || r.kw);
   const card = { name, art, imgs, type, oracle, colors, rows, oid, setLabel };
   if (mode === 'spell') {
-    const applied = rows.filter(r => applyRow(p, name, r));
-    toast(applied.length ? `${name}: ${applied.map(describe).join('; ')} until end of turn` : `${name}: nothing to apply`);
+    const applied = await applyRows(p, name, rows);
+    toast(applied.length ? `${name}: ${doneText(applied)}` : `${name}: nothing to apply`);
   } else if (mode === 'perm') {
     const kind = $('fKind').value;
     Object.assign(card, { kind, host: kind ? $('fHost').value || null : null });
@@ -1247,8 +1375,9 @@ dlg.addEventListener('close', () => {
       const c = { id: uid(), ...v, counters: 0, tp: 0, tt: 0, tapped: 0, attacking: 0, sick: v.count };
       p.creatures.push(c);
       // enters-the-battlefield pumps (Craterhoof and friends) happen now
-      const etb = rows.filter(r => r.when === 'eot' && applyRow(p, name, r, c.id));
-      if (etb.length) toast(`${name} entered: ${etb.map(describe).join('; ')} until end of turn`);
+      render();
+      const etb = await applyRows(p, name, rows.filter(r => r.when === 'eot'), c.id);
+      if (etb.length) toast(`${name} entered: ${doneText(etb)}`);
     }
   }
   render();
@@ -1663,8 +1792,11 @@ function act(el) {
     case 'permDel': p.perms = p.perms.filter(x => x.id !== el.dataset.pid); break;    case 'fxToggle': { const r = findSrc(p, el.dataset.src).rows[+el.dataset.r]; r.on = r.on === false; break; }
     case 'fxFire': {
       const src = findSrc(p, el.dataset.src), r = src.rows[+el.dataset.r];
-      if (applyRow(p, src.name, r, src.id, src.host)) toast(`${src.name}: ${describe(r)} until end of turn`);
-      break;
+      applyRows(p, src.name, [r], src.id, src.host).then(done => {
+        if (done.length) toast(`${src.name}: ${doneText(done)}`);
+        render(); if (sheet.open) renderSheet();
+      });
+      return;
     }
     case 'attEdit': { sheet.close(); return openDlg(findPerm(el.dataset.pid).pm, 'perm'); }
     case 'attachNew': { const host = c.id; sheet.close(); return openDlg(null, 'perm', { host }); }
