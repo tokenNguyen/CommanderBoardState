@@ -85,6 +85,12 @@
   .cmdtile.warn .meter i { background:var(--atk); }
   .cmdtile.lethal { background:color-mix(in srgb, var(--lethal) 14%, var(--panel)); border-color:var(--lethal); }
   .cmdtile.lethal .n { color:var(--lethal); } .cmdtile.lethal .meter i { background:var(--lethal); }
+  .counts { cursor:pointer; padding:10px 12px; }
+  .counts .head { margin-bottom:6px; }
+  .counts:hover { border-color:var(--gold); }
+  .cprev { display:flex; flex-wrap:wrap; gap:6px 14px; font-size:14px; color:var(--muted); }
+  .cprev b { font-family:var(--display); color:var(--text); font-size:16px; }
+  .cmdpanel .chev { color:var(--muted); }
   .opt-row { display:flex; align-items:center; gap:8px; margin-top:10px; color:var(--muted); font-size:13px; }
 
   .toolbar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; align-items:center; }
@@ -679,8 +685,18 @@ function countsPanel(p) {
       <div class="r"><span class="nm">${icon} ${label}${sub ? `<br><small class="hint">${sub}</small>` : ''}</span>
         <button data-a="res" data-k="${k}" data-d="-1">−</button><span class="n">${val}</span>
         <button data-a="res" data-k="${k}" data-d="1">+</button></div></div>`;
+  // collapsed: a heading and a one-line preview; tap it to open the −/+ controls
+  if (!S.countsOpen) {
+    const prev = [['🏔', 'Lands', p.res.land], ['⚙', 'Artifacts', countOf(p, 'artifact')], ['✨', 'Enchantments', countOf(p, 'enchantment')],
+      ['🃏', 'Hand', p.res.hand], ['🪦', 'Graveyard', p.res.grave],
+      ...[['💰', 'Treasure', p.res.treasure], ['🔍', 'Clue', p.res.clue], ['🍗', 'Food', p.res.food]].filter(x => x[2])];
+    return `<section class="cmdpanel counts" data-a="countsToggle" title="Tap to change counts">
+      <div class="head"><h3>Counts</h3><span class="chev">▾</span></div>
+      <div class="cprev">${prev.map(([i, l, n]) => `<span>${i} ${l} <b>${n}</b></span>`).join('')}</div>
+    </section>`;
+  }
   return `<section class="cmdpanel">
-    <div class="head"><h3>Counts</h3><button class="ghost" data-a="countsToggle">✕</button></div>
+    <div class="head" data-a="countsToggle" style="cursor:pointer"><h3>Counts</h3><span class="chev">▴</span></div>
     <div class="cmd">
       ${tileH('land', '🏔', 'Lands', p.res.land)}
       ${tileH('hand', '🃏', 'Cards in hand', p.res.hand)}
@@ -753,7 +769,6 @@ function render() {
         <span class="st a">⚔ <b>${sum(atk, c => c.attacking * pow(c))}</b> attacking</span>
         <span class="st">🛡 <b>${sum(blk, c => (c.count - c.tapped) * bT(c))}</b> can block (${sum(blk, c => c.count - c.tapped)})</span>
         <button class="st ${lvl(worst)}" data-a="cmdToggle" title="Commander damage taken">♛ <b>${others.map(o => p.cmdr[o.id] || 0).join(' · ')}</b></button>
-        <button class="st" data-a="countsToggle" title="Lands, artifacts, enchantments, hand, graveyard">🏔 <b>${p.res.land}</b> ⚙ <b>${countOf(p, 'artifact')}</b> ✨ <b>${countOf(p, 'enchantment')}</b></button>
       </div>
     </div>`;
 
@@ -771,10 +786,9 @@ function render() {
           <div class="meter"><i style="width:${Math.min(100, n / 21 * 100)}%"></i></div></div>`; }).join('')}</div>
       <label class="opt-row"><input type="checkbox" data-a="cmdLife" ${S.cmdLife ? 'checked' : ''}> Commander damage also changes life total</label>
     </section>` : ''}
-    ${S.countsOpen ? countsPanel(p) : ''}
+    ${countsPanel(p)}
     <div class="toolbar">
-      <button class="primary" data-a="add">+ Add a card</button>
-      <button data-a="cast">⚡ Cast a spell</button>
+      <button class="primary" data-a="cast">⚡ Cast a spell</button>
       ${p.creatures.length && S.players.length > 1 ? '<button data-a="cStart">⚔ Combat</button>' : ''}
       <button data-a="untap">Untap all</button>
       <button data-a="clearAtk">Clear attackers</button>
@@ -783,7 +797,7 @@ function render() {
     </div>
     ${inPlay(p)}
     ${p.creatures.length ? `<div class="grid">${p.creatures.map(tile).join('')}</div>`
-      : '<div class="empty">No creatures yet. Add one, or a pile of tokens.</div>'}`;
+      : '<div class="empty">No creatures yet. Tap ⚡ Cast a spell to add one, or a pile of tokens.</div>'}`;
   if (sheet.open) renderSheet();
   save();
 }
@@ -1038,8 +1052,7 @@ function openDlg(src, kind, opts = {}) {
   $('fModes').hidden = !!src;
   setMode(kind || 'creature');
   syncAttach(src ? src.host || '' : presetHost || '');
-  $('dlgTitle').textContent = src ? 'Edit ' + src.name : kind === 'spell' ? 'Cast a spell'
-    : presetHost ? 'Attach to ' + findCreature(presetHost).c.name : 'Add a card';
+  $('dlgTitle').textContent = src ? 'Edit ' + src.name : presetHost ? 'Attach to ' + findCreature(presetHost).c.name : 'Cast a spell';
   $('fName').value = src ? src.name : '';
   $('fP').value = src && src.bp != null ? src.bp : 0; $('fT').value = src && src.bt != null ? src.bt : 1;
   $('fKw').value = src ? src.kw || '' : ''; $('fCount').value = src ? src.count || 1 : 1;
@@ -1573,8 +1586,7 @@ function act(el) {
       const o = el.dataset.o, cur = p.cmdr[o] || 0, nv = Math.max(0, cur + d);
       p.cmdr[o] = nv; if (S.cmdLife) p.life -= nv - cur; break;
     }
-    case 'add': return openDlg();
-    case 'cast': return openDlg(null, 'spell');
+    case 'cast': return openDlg();
     case 'permEdit': return openDlg(p.perms.find(x => x.id === el.dataset.pid), 'perm');
     case 'permDel': p.perms = p.perms.filter(x => x.id !== el.dataset.pid); break;    case 'fxToggle': { const r = findSrc(p, el.dataset.src).rows[+el.dataset.r]; r.on = r.on === false; break; }
     case 'fxFire': {
