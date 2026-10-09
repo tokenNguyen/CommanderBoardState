@@ -184,6 +184,13 @@
   .pickbox .attrow { width:100%; text-align:left; cursor:pointer; min-height:0; }
   .pickbox .attrow .th { flex-basis:38px; }
   .pickbox .attrow b { font-variant-numeric:tabular-nums; }
+  /* in-app questions (kicked?, what is X?, rename) instead of the browser's own popups */
+  #askDlg { width:min(400px,94vw); }
+  #askText { margin:0; line-height:1.45; white-space:pre-line; }
+  #askText q { display:block; margin-top:6px; color:var(--muted); font-style:italic; quotes:none; }
+  .askbtns { display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; margin-top:4px; }
+  .askbtns button { flex:1 1 120px; }
+  button.danger { background:color-mix(in srgb, var(--lethal) 18%, var(--panel2)); border-color:var(--lethal); }
 
   /* dialogs */
   dialog { background:var(--panel); color:var(--text); border:1px solid var(--line); border-top:3px solid var(--gold); border-radius:18px;
@@ -426,6 +433,15 @@
       <button class="primary" value="ok" id="fSave">Save</button>
     </div>
   </form>
+</dialog>
+
+<dialog id="askDlg">
+  <div class="pickbox">
+    <h3 id="askTitle"></h3>
+    <p id="askText"></p>
+    <input id="askInput" type="text" hidden>
+    <div class="askbtns" id="askBtns"></div>
+  </div>
 </dialog>
 
 <dialog id="pickDlg">
@@ -719,11 +735,34 @@ const describeNow = (r, p) => {
   const v = rowVal(r, p);
   return `${describe(r)} · now ${fmt(v.pw)}/${fmt(v.tg)}`;
 };
+// An in-app question. buttons: [{ label, value, primary, danger }]; value 'input' answers with the typed text.
+// Resolves to the chosen value, or null if dismissed (Esc / tapping outside).
+function ask({ title, text = '', html = '', input = null, buttons }) {
+  const d = $('askDlg'), inp = $('askInput');
+  $('askTitle').textContent = title;
+  if (html) $('askText').innerHTML = html; else $('askText').textContent = text;
+  $('askText').hidden = !text && !html;
+  inp.hidden = input === null;
+  if (input !== null) { inp.type = input.type || 'text'; inp.value = input.value != null ? input.value : ''; inp.inputMode = input.type === 'number' ? 'numeric' : ''; }
+  $('askBtns').innerHTML = buttons.map((b, i) =>
+    `<button type="button" class="${b.primary ? 'primary' : b.danger ? 'danger' : 'ghost'}" data-i="${i}">${esc(b.label)}</button>`).join('');
+  const valueOf = b => (!b ? null : b.value === 'input' ? inp.value : b.value === undefined ? null : b.value);
+  return new Promise(res => {
+    let out = null;
+    $('askBtns').onclick = e => { const b = e.target.closest('[data-i]'); if (b) { out = valueOf(buttons[+b.dataset.i]); d.close(); } };
+    inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); out = valueOf(buttons.find(b => b.primary)); d.close(); } };
+    d.onclick = e => { if (e.target === d) d.close(); }; // tap outside the box
+    d.onclose = () => res(out);
+    d.showModal();
+    if (input !== null) { inp.focus(); inp.select(); }
+  });
+}
 // Apply a row until end of turn (a spell, or a trigger); X and counts are fixed now.
-function applyRow(p, name, r, srcId, hostId, hostName) {
+async function applyRow(p, name, r, srcId, hostId, hostName) {
   let v = rowVal(r, p);
   if ((typeof r.pw === 'string' || typeof r.tg === 'string') && (!r.x || r.x === 'ask')) {
-    const a = prompt(`What is X for ${name}?`, '1');
+    const a = await ask({ title: name, text: `What is X? (${describe({ ...r, note: '' }).split(' → ')[0]})`, input: { type: 'number', value: 1 },
+      buttons: [{ label: 'Cancel' }, { label: 'Apply', value: 'input', primary: true }] });
     if (a === null) return false;
     const x = parseInt(a) || 0;
     v = { pw: xval(r.pw, x), tg: xval(r.tg, x) };
@@ -762,6 +801,7 @@ function pickCreature(name, r, p, srcId) {
     let chosen = null;
     $('pickList').onclick = ev => { const b = ev.target.closest('[data-id]'); if (b) { chosen = findCreature(b.dataset.id); pd.close(); } };
     $('pickCancel').onclick = () => pd.close();
+    pd.onclick = e => { if (e.target === pd) pd.close(); }; // tap outside the box
     pd.onclose = () => res(chosen && chosen.c ? chosen : null);
     pd.showModal();
   });
@@ -772,14 +812,19 @@ async function applyRows(p, name, rows, srcId, hostId) {
   const done = [];
   // kicker and other "if ..." upgrades: ask once per condition; "instead" replaces the plain version
   for (const cd of [...new Set(rows.filter(r => r.cond).map(r => r.cond))]) {
-    const yes = confirm(cd === 'kicked' ? `Was ${name} kicked?` : `${name}: did this happen?\n\nIf ${cd}`);
+    const gives = rs => rs.map(r => describe({ ...r, note: '', hostName: '' }).split(' → ')[0]).join(', ');
+    const up = gives(rows.filter(r => r.cond === cd)), plain = gives(rows.filter(r => !r.cond));
+    const yes = await ask(cd === 'kicked'
+      ? { title: name, text: `Was it kicked?\n${plain ? `Not kicked: ${plain}\n` : ''}Kicked: ${up}`, buttons: [{ label: 'Not kicked', value: false }, { label: 'Kicked', value: true, primary: true }] }
+      : { title: name, html: `Does this apply?<q>If ${esc(cd)}: ${esc(up)}</q>`, buttons: [{ label: 'No', value: false }, { label: 'Yes', value: true, primary: true }] });
+    if (yes === null) return done; // dismissed: nothing is applied
     rows = !yes ? rows.filter(r => r.cond !== cd)
       : rows.some(r => r.cond === cd && r.instead) ? rows.filter(r => r.cond) : rows;
   }
   for (const r of rows) {
-    if (r.target !== 'pick') { if (applyRow(p, name, r, srcId, hostId)) done.push(r); continue; }
+    if (r.target !== 'pick') { if (await applyRow(p, name, r, srcId, hostId)) done.push(r); continue; }
     const ch = await pickCreature(name, r, p, srcId);
-    if (ch && applyRow(p, name, { ...r, target: 'self' }, srcId, ch.c.id, ch.c.name)) done.push({ ...r, hostName: ch.c.name, note: r.cond === 'kicked' ? 'kicked' : '' });
+    if (ch && await applyRow(p, name, { ...r, target: 'self' }, srcId, ch.c.id, ch.c.name)) done.push({ ...r, hostName: ch.c.name, note: r.cond === 'kicked' ? 'kicked' : '' });
   }
   return done;
 }
@@ -1778,7 +1823,10 @@ function act(el) {
     case 'pStep': stepCardPrint(c, d); return;
     case 'edit': sheet.close(); return openDlg(c, c.token ? 'token' : 'creature');
     case 'view': S.view = parseInt(el.dataset.i); break;
-    case 'rename': { const n = prompt('Player name', p.name); if (n) p.name = n.trim(); break; }
+    case 'rename':
+      ask({ title: 'Player name', input: { value: p.name }, buttons: [{ label: 'Cancel' }, { label: 'Save', value: 'input', primary: true }] })
+        .then(n => { if (n && n.trim()) { p.name = n.trim(); render(); } });
+      return;
     case 'life': p.life += d; break;
     case 'cmdToggle': S.cmdOpen = !S.cmdOpen; break;
     case 'countsToggle': S.countsOpen = !S.countsOpen; break;
@@ -1811,8 +1859,12 @@ function act(el) {
     case 'untap': p.creatures.forEach(x => { x.tapped = 0; }); break;
     case 'tapToggle': if (c.tapped >= c.count) c.tapped = 0; else c.tapped = c.count; break;
     case 'delPlayer':
-      if (confirm('Remove ' + p.name + '?')) { S.players.splice(S.view, 1); p.creatures.forEach(dropAttachments); S.view = 0; S.active = 0; }
-      break;
+      ask({ title: `Remove ${p.name}?`, text: 'Their board, life and commander damage will be cleared.',
+            buttons: [{ label: 'Cancel' }, { label: 'Remove', value: true, danger: true }] }).then(yes => {
+        if (!yes || !S.players.includes(p)) return;
+        S.players.splice(S.players.indexOf(p), 1); p.creatures.forEach(dropAttachments); S.view = 0; S.active = 0; render();
+      });
+      return;
     case 'ctr': c.counters += d; break;
     case 'eot': c.tp += d; c.tt += d; break;
     case 'adj': adj(c, el.dataset.f, d); break;
@@ -1844,7 +1896,8 @@ $('nextTurn').onclick = () => {
   render();
 };
 $('addPlayer').onclick = () => { S.players.push(newPlayer(S.players.length)); S.view = S.players.length - 1; render(); };
-$('reset').onclick = () => { if (confirm('Reset everything?')) { S = fresh(); render(); } };
+$('reset').onclick = () => ask({ title: 'Reset everything?', text: 'All players, boards and life totals go back to a fresh game.',
+  buttons: [{ label: 'Cancel' }, { label: 'Reset', value: true, danger: true }] }).then(yes => { if (yes) { S = fresh(); render(); } });
 render();
 
 // Register the service worker that makes this installable as an app (see sw.js).
