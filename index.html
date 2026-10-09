@@ -748,7 +748,6 @@ function render() {
   }
 
   const p = S.players[S.view];
-  const atk = p.creatures.filter(c => c.attacking > 0);
   const blk = p.creatures.filter(c => c.count - c.tapped > 0);
   const others = S.players.filter(x => x.id !== p.id);
   const worst = Math.max(0, ...others.map(o => p.cmdr[o.id] || 0));
@@ -766,8 +765,8 @@ function render() {
       <button data-a="life" data-d="1">+1</button><button data-a="life" data-d="5">+5</button>
     </div>
       <div class="stats">
-        <span class="st a">⚔ <b>${sum(atk, c => c.attacking * pow(c))}</b> attacking</span>
-        <span class="st">🛡 <b>${sum(blk, c => (c.count - c.tapped) * bT(c))}</b> can block (${sum(blk, c => c.count - c.tapped)})</span>
+        <span class="st" title="All your creatures: total power / total toughness">▦ <b>${sum(p.creatures, c => c.count)}</b> creature${sum(p.creatures, c => c.count) === 1 ? '' : 's'} · <b>${sum(p.creatures, c => c.count * pow(c))} / ${sum(p.creatures, c => c.count * tou(c))}</b></span>
+        <span class="st" title="Untapped creatures (what you can block with): total power / total toughness">🛡 <b>${sum(blk, c => c.count - c.tapped)}</b> untapped · <b>${sum(blk, c => (c.count - c.tapped) * (pow(c) - (CALC[c.id] ? CALC[c.id].aP : 0)))} / ${sum(blk, c => (c.count - c.tapped) * bT(c))}</b></span>
         <button class="st ${lvl(worst)}" data-a="cmdToggle" title="Commander damage taken">♛ <b>${others.map(o => p.cmdr[o.id] || 0).join(' · ')}</b></button>
       </div>
     </div>`;
@@ -791,9 +790,8 @@ function render() {
       <button class="primary" data-a="cast">⚡ Cast a spell</button>
       ${p.creatures.length && S.players.length > 1 ? '<button data-a="cStart">⚔ Combat</button>' : ''}
       <button data-a="untap">Untap all</button>
-      <button data-a="clearAtk">Clear attackers</button>
       ${S.players.length > 2 ? '<button class="ghost" data-a="delPlayer">Remove player</button>' : ''}
-      ${p.creatures.length ? '<span class="hint">Tap a card to attack · ⓘ for details and controls</span>' : ''}
+      ${p.creatures.length ? '<span class="hint">Tap a card to tap or untap it · ⓘ for details · attack from ⚔ Combat</span>' : ''}
     </div>
     ${inPlay(p)}
     ${p.creatures.length ? `<div class="grid">${p.creatures.map(tile).join('')}</div>`
@@ -836,7 +834,7 @@ function tile(c) {
     ...kws(c).map(w => KW[w] && `<span class="ic" title="${esc(w)}">${KW[w]}</span>`),
     ...granted(c).map(w => KW[w] && `<span class="ic g" title="${esc(w)} (from an effect)">${KW[w]}</span>`),
   ];
-  return `<div class="tile ${allTapped ? 'tapped' : ''} ${c.attacking ? 'attacking' : ''}" data-id="${c.id}" data-a="strike" title="${esc(c.name)}" style="--att:${atts.length}">
+  return `<div class="tile ${allTapped ? 'tapped' : ''} ${c.attacking ? 'attacking' : ''}" data-id="${c.id}" data-a="tapToggle" title="${esc(c.name)}" style="--att:${atts.length}">
     ${peeks}${faces}
     <div class="ov tl">${tl.filter(Boolean).join('')}</div>
     <div class="ov bl">${bl.filter(Boolean).join('')}</div>
@@ -897,7 +895,6 @@ function renderSheet() {
         <div><div class="l">Until end of turn</div>${pill('eot', '', `${num(c.tp)}/${num(c.tt)}`)}</div>
         ${c.token ? `
         <div><div class="l">Count</div>${pill('adj', 'count', c.count)}</div>
-        <div><div class="l">Attacking</div>${pill('adj', 'attacking', c.attacking)}</div>
         <div><div class="l">Tapped</div>${pill('adj', 'tapped', c.tapped)}</div>
         <div><div class="l">Summoning sick</div>${pill('adj', 'sick', c.sick)}</div>` : ''}
       </div>
@@ -905,7 +902,6 @@ function renderSheet() {
         ${c.token ? `
         <button data-a="tapAll">Tap all</button><button data-a="untapAll">Untap all</button>
         <button data-a="ready">All ready</button><button data-a="split" title="Move one token into its own group">Split 1</button>` : `
-        <button class="${c.attacking ? 'on' : ''}" data-a="strike">⚔ ${c.attacking ? 'Attacking' : 'Attack'}</button>
         <button data-a="tap">${c.tapped ? 'Untap' : 'Tap'}</button>
         <button data-a="sick">${c.sick ? 'Ready' : 'Summoning sick'}</button>`}
       </div>
@@ -1530,7 +1526,11 @@ function act(el) {
       window.scrollTo(0, 0);
       break;
     }
-    case 'cLeave': S.combat = null; break;
+    case 'cLeave': {
+      // cancel the attack: anything that tapped to attack untaps again
+      pl(cb.att).creatures.forEach(x => { if (x.attacking && !has(x, 'vigilance')) x.tapped = Math.max(0, x.tapped - x.attacking); x.attacking = 0; });
+      S.combat = null; break;
+    }
     case 'cTarget': cb.target = el.dataset.p; break;
     case 'cAtk': {
       // already attacking someone else: send it at the chosen opponent instead
@@ -1605,7 +1605,7 @@ function act(el) {
     }
     case 'eotDel': p.eot = p.eot.filter(x => x.id !== el.dataset.e); break;
     case 'untap': p.creatures.forEach(x => { x.tapped = 0; }); break;
-    case 'clearAtk': p.creatures.forEach(x => { x.attacking = 0; }); break;
+    case 'tapToggle': if (c.tapped >= c.count) c.tapped = 0; else c.tapped = c.count; break;
     case 'delPlayer':
       if (confirm('Remove ' + p.name + '?')) { S.players.splice(S.view, 1); p.creatures.forEach(dropAttachments); S.view = 0; S.active = 0; }
       break;
