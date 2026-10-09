@@ -227,7 +227,94 @@
   .nav button { min-height:30px; padding:2px 10px; }
   .foot { grid-column:1/-1; display:flex; justify-content:flex-end; gap:8px; border-top:1px solid var(--line); padding-top:14px; }
 
+  /* death check and marked damage on the board */
+  .ic.dmg { background:var(--down); color:#fff; }
+  .ic.cm { background:linear-gradient(180deg,var(--gold2),var(--gold)); color:#1d1404; }
+  .die { position:absolute; z-index:4; left:8%; right:8%; top:42%; min-height:34px; font-weight:700; color:#fff;
+         background:var(--down); border-color:var(--down); box-shadow:0 4px 14px rgba(0,0,0,.45); }
+
+  /* ---------- combat mode ---------- */
+  body.in-combat header, body.in-combat .pbar { display:none; }
+  body.in-combat main { padding-bottom:110px; }
+  .ctop { position:sticky; top:0; z-index:10; margin:-16px -16px 14px; padding:10px 16px; background:color-mix(in srgb, var(--bg0) 92%, transparent);
+          backdrop-filter:blur(10px); border-bottom:1px solid var(--line); box-shadow:var(--shadow); }
+  .ctop .t { display:flex; align-items:center; gap:10px; }
+  .ctop h2 { margin:0; flex:1; font-family:var(--display); font-size:20px; color:var(--gold); }
+  .csteps { display:flex; gap:6px; margin-top:8px; }
+  .cstep { flex:1; text-align:center; padding:6px 4px; border-radius:10px; font-size:13px; font-weight:600; color:var(--muted);
+           border:1px solid var(--line); background:var(--panel); }
+  .cstep b { font-family:var(--display); margin-right:4px; }
+  .cstep.on { color:#1d1404; background:linear-gradient(180deg,var(--gold2),var(--gold)); border-color:var(--gold); }
+  .cstep.done { color:var(--up); }
+  .lead { color:var(--muted); margin:0 0 12px; }
+  .lead small { display:block; }
+  .pchips { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+  .pchip { display:flex; align-items:center; gap:8px; border-radius:999px; background:var(--panel); padding:6px 14px 6px 10px; }
+  .pchip i { width:12px; height:12px; border-radius:50%; background:var(--c); }
+  .pchip small { color:var(--muted); }
+  .pchip.sel { border-color:var(--c); box-shadow:0 0 0 2px var(--c) inset; font-weight:700; }
+  .chead { font-family:var(--display); font-size:15px; letter-spacing:.05em; color:var(--gold); margin:18px 0 10px; }
+  .crow { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-start; }
+  .cwrap { display:flex; flex-direction:column; gap:6px; align-items:center; }
+  .cwrap .pill { width:118px; } .cwrap .pill b { min-width:0; font-size:13px; }
+  .cmini { position:relative; width:118px; aspect-ratio:488/680; border-radius:4.75% / 3.5%; background:var(--panel2) center/cover;
+           box-shadow:var(--shadow); cursor:pointer; flex:0 0 auto; transition:transform .15s, box-shadow .15s, opacity .15s; user-select:none; }
+  .cmini.sm { width:92px; }
+  .cmini.attacking { box-shadow:0 0 0 3px var(--tc, var(--atk)), 0 0 16px color-mix(in srgb, var(--tc, var(--atk)) 60%, transparent); }
+  .cmini.picked { transform:translateY(-8px); box-shadow:0 0 0 3px var(--gold), 0 8px 22px rgba(0,0,0,.45); }
+  .cmini.used, .cmini.cant { opacity:.45; }
+  .cmini.dead { filter:grayscale(1) brightness(.6); }
+  .cmini.lifted { opacity:.3; }
+  .cmini .cname { position:absolute; inset:8px; font:700 12px var(--display); }
+  .cmini .ctag { position:absolute; left:4px; top:4px; right:30px; display:flex; gap:3px; flex-wrap:wrap; }
+  .cmini .ic { height:20px; min-width:20px; padding:0 6px; font-size:11px; }
+  .ic.dot { background:var(--tc); color:#fff; }
+  .cmini .cqty { position:absolute; right:4px; bottom:30px; font:800 12px var(--display); background:var(--gold2); color:#1d1404; border-radius:999px; padding:0 7px; }
+  .cmini .cinfo { position:absolute; top:3px; right:3px; width:26px; height:26px; min-height:0; padding:0; border-radius:50%; font-size:12px;
+                  background:rgba(12,12,16,.82); color:#f3ead6; border:1px solid rgba(255,255,255,.2); }
+  .cmini .cpt { position:absolute; right:-5px; bottom:-6px; font:800 15px var(--display); padding:3px 7px; border-radius:8px;
+                background:linear-gradient(180deg,var(--panel),var(--panel2)); border:2px solid var(--frame); color:var(--text); }
+  .cmini .cpt.up { color:var(--up); } .cmini .cpt.down { color:var(--down); }
+  .cmini .warn { position:absolute; left:3px; right:3px; bottom:24px; text-align:center; font-size:10px; font-weight:700; color:#fff;
+                 background:#e67700; border-radius:6px; padding:2px 3px; }
+  .lanes { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:14px; }
+  .lane { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:10px; display:flex; flex-direction:column;
+          align-items:center; gap:8px; box-shadow:var(--shadow); cursor:pointer; }
+  .lane.target { border-color:var(--gold); box-shadow:0 0 0 2px var(--gold) inset; }
+  .lane.over { border-color:var(--atk); box-shadow:0 0 0 3px var(--atk) inset, 0 0 24px color-mix(in srgb, var(--atk) 40%, transparent); }
+  .lane .vs { font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); text-align:center; }
+  .lane .lwarn { font-size:11.5px; font-weight:700; color:#e67700; text-align:center; }
+  .lane .blk { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; min-height:40px; }
+  .lane .none { font-size:12px; color:var(--muted); border:1px dashed var(--line); border-radius:8px; padding:8px 10px; }
+  .ctray { background:var(--panel); border:1px dashed var(--line); border-radius:14px; padding:12px; }
+  .ctray .cmini, .lane .blk .cmini { touch-action:none; cursor:grab; }
+  .dragghost { position:fixed; z-index:60; pointer-events:none; margin:0; transform:translate(-50%,-60%) rotate(-4deg) scale(1.08);
+           box-shadow:0 14px 30px rgba(0,0,0,.5); }
+  #arrow { position:fixed; inset:0; width:100vw; height:100vh; z-index:59; pointer-events:none; display:none; }
+  #arrow.show { display:block; }
+  #arrow line { stroke:var(--gold2); stroke-width:5; stroke-linecap:round; }
+  .csum { display:grid; gap:10px; }
+  .ccard { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px 14px; box-shadow:var(--shadow); }
+  .ccard h4 { margin:0 0 6px; font-family:var(--display); font-size:15px; display:flex; align-items:center; gap:8px; }
+  .ccard h4 i { width:10px; height:10px; border-radius:50%; background:var(--c); }
+  .cline { display:flex; gap:8px; align-items:baseline; padding:3px 0; flex-wrap:wrap; }
+  .cline b { font-family:var(--display); }
+  .bad { color:var(--down); } .good { color:var(--up); }
+  .fight { display:grid; grid-template-columns:auto 1fr; gap:10px 14px; align-items:center; padding:10px 0; border-top:1px dashed var(--line); }
+  .fight:first-child { border-top:0; }
+  .fight .who { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .fight .what { font-size:14px; }
+  .fight .what small { color:var(--muted); display:block; }
+  .fight .order button { min-height:26px; padding:0 8px; font-size:12px; margin-top:4px; }
+  .cbottom { position:fixed; left:0; right:0; bottom:0; z-index:20; background:color-mix(in srgb, var(--bg0) 92%, transparent);
+             backdrop-filter:blur(10px); border-top:1px solid var(--line); }
+  .cbottom .in { max-width:1200px; margin:0 auto; padding:10px 16px; display:flex; gap:8px; align-items:center; }
+  .cbottom .msg { flex:1; font-size:13px; color:var(--muted); }
+  button:disabled { opacity:.45; cursor:default; }
+
   @media (max-width:640px) {
+    .cmini { width:96px; } .cmini.sm { width:78px; } .cwrap .pill { width:96px; }
+    .lanes { grid-template-columns:repeat(2,1fr); }
     .brand span { display:none; }
     .grid { grid-template-columns:repeat(2,1fr); gap:20px 12px; }
     .life b { font-size:34px; min-width:56px; }
@@ -254,6 +341,9 @@
 <div class="pbar" id="pbar"></div>
 <main id="main"></main>
 <div class="toast" id="toast"></div>
+<svg id="arrow"><defs><marker id="arrowHead" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="4" markerHeight="4" orient="auto">
+  <path d="M0,0 L10,5 L0,10 z" fill="#e0b04f"/></marker></defs>
+  <line id="arrowLine" x1="0" y1="0" x2="0" y2="0" marker-end="url(#arrowHead)"/></svg>
 
 <dialog id="sheet"></dialog>
 
@@ -633,6 +723,14 @@ function render() {
     `<button class="tab ${i === S.view ? 'active' : ''} ${i === S.active ? 'turn' : ''}" style="--acc:${p.color}" data-a="view" data-i="${i}">
        <span class="dot"></span><span>${esc(p.name)}</span><span class="hp">${p.life}</span></button>`).join('');
 
+  // combat takes over the screen until it's resolved or left
+  document.body.classList.toggle('in-combat', !!S.combat);
+  if (S.combat) {
+    $('main').innerHTML = combatView();
+    if (S.combat) { if (sheet.open) renderSheet(); save(); return; }
+    document.body.classList.remove('in-combat');
+  }
+
   const p = S.players[S.view];
   const atk = p.creatures.filter(c => c.attacking > 0);
   const blk = p.creatures.filter(c => c.count - c.tapped > 0);
@@ -677,6 +775,7 @@ function render() {
     <div class="toolbar">
       <button class="primary" data-a="add">+ Add a card</button>
       <button data-a="cast">⚡ Cast a spell</button>
+      ${p.creatures.length && S.players.length > 1 ? '<button data-a="cStart">⚔ Combat</button>' : ''}
       <button data-a="untap">Untap all</button>
       <button data-a="clearAtk">Clear attackers</button>
       ${S.players.length > 2 ? '<button class="ghost" data-a="delPlayer">Remove player</button>' : ''}
@@ -688,6 +787,9 @@ function render() {
   if (sheet.open) renderSheet();
   save();
 }
+
+// death check: toughness 0 or less (even indestructible), or marked damage at least its toughness (unless indestructible)
+const lethal = c => tou(c) <= 0 || (!has(c, 'indestructible') && !c.token && c.dmg > 0 && c.dmg >= tou(c));
 
 // ---------- battlefield tiles ----------
 function faceEl(c, i) {
@@ -708,7 +810,9 @@ function tile(c) {
       pm.imgs && pm.imgs.length ? '' : esc(pm.name)}</div>`).join('');
   const tl = [
     c.attacking && `<span class="ic atk" title="Attacking">⚔${c.token ? ' ' + c.attacking : ''}</span>`,
+    c.cmdr && '<span class="ic cm" title="Commander">♛</span>',
     c.sick && `<span class="ic" title="Summoning sick">💤${c.token ? ' ' + c.sick : ''}</span>`,
+    c.dmg && `<span class="ic dmg" title="Damage marked until end of turn">🩸${c.dmg}</span>`,
     allTapped && atts.length && `<span class="ic" title="${esc(atts.map(a => a.pm.name).join(', '))}">📎${atts.length}</span>`,
   ];
   const bl = [
@@ -725,6 +829,7 @@ function tile(c) {
     <button class="info" data-a="info" title="Details">ⓘ</button>
     ${c.token ? `<span class="qty">×${c.count}</span>` : ''}
     <div class="pt ${ptClass(c)}">${pow(c)}/${tou(c)}</div>
+    ${lethal(c) ? `<button class="die" data-a="del" title="Its toughness is 0 or less, or it has lethal damage">☠ ${c.token ? 'They die' : 'It dies'}: remove</button>` : ''}
     ${c.token && c.tapped && !allTapped ? `<span class="split">${c.count - c.tapped} ready · ${c.tapped} tapped</span>` : ''}
   </div>`;
 }
@@ -735,7 +840,7 @@ let sheetId = null, sheetFace = 0;
 const pill = (a, f, val) =>
   `<div class="pill"><button data-a="${a}" ${f ? `data-f="${f}"` : ''} data-d="-1">−</button><b>${val}</b><button data-a="${a}" ${f ? `data-f="${f}"` : ''} data-d="1">+</button></div>`;
 function renderSheet() {
-  const c = S.players[S.view].creatures.find(x => x.id === sheetId);
+  const c = findCreature(sheetId).c;
   if (!c) { sheet.close(); return; }
   const P = pow(c), T = tou(c), list = kws(c), gk = granted(c), imgs = c.imgs || [];
   const fxRows = (CALC[c.id] ? CALC[c.id].rows : []).filter(r => r.p || r.t);
@@ -791,6 +896,7 @@ function renderSheet() {
         <button data-a="sick">${c.sick ? 'Ready' : 'Summoning sick'}</button>`}
       </div>
       <div class="acts">
+        <button data-a="cmdrToggle" class="${c.cmdr ? 'on' : ''}" title="Its combat damage to a player counts as commander damage">♛ ${c.cmdr ? 'Commander' : 'Mark as commander'}</button>
         <button data-a="edit">✎ Edit</button>
         <button class="x" data-a="del">Remove</button>
       </div>
@@ -1068,8 +1174,322 @@ dlg.addEventListener('close', () => {
   render();
 });
 
+// ---------- combat ----------
+// S.combat: { att: attacking player id, step: 0 attack | 1 block | 2 damage, target, atk: { creatureId: defenderId },
+//             blocks: [{ bid: blocker id, aid: attacker id, n: how many (token groups) }], order: { attackerId: [blocker ids] }, defender, fog }
+const pl = id => S.players.find(x => x.id === id);
+const shortName = n => n.replace(/^Player /, 'P');
+const blocksOn = aid => S.combat.blocks.filter(b => b.aid === aid);
+const assignedFrom = bid => sum(S.combat.blocks.filter(b => b.bid === bid), b => b.n);
+const availBlock = c => c.count - c.tapped - assignedFrom(c.id);
+function assignBlock(bid, aid) {
+  const { c } = findCreature(bid);
+  if (!c || availBlock(c) <= 0) return false;
+  const e = S.combat.blocks.find(b => b.bid === bid && b.aid === aid);
+  if (e) e.n++; else S.combat.blocks.push({ bid, aid, n: 1 });
+  delete S.combat.order[aid];
+  return true;
+}
+function unassignBlock(bid, aid) {
+  const e = S.combat.blocks.find(b => b.bid === bid && b.aid === aid);
+  if (!e) return;
+  if (!--e.n) S.combat.blocks = S.combat.blocks.filter(x => x !== e);
+  delete S.combat.order[aid];
+}
+// keep combat consistent with the boards (creatures removed, attack counts changed in the ⓘ panel, ...)
+function syncCombat() {
+  const cb = S.combat, ap = pl(cb.att);
+  if (!ap) { S.combat = null; return; }
+  Object.keys(cb.atk).forEach(id => { const c = ap.creatures.find(x => x.id === id); if (!c || !c.attacking) delete cb.atk[id]; });
+  ap.creatures.forEach(c => { if (c.attacking && !cb.atk[c.id]) cb.atk[c.id] = cb.target; });
+  cb.blocks = cb.blocks.filter(b => cb.atk[b.aid] && findCreature(b.bid).c);
+  cb.blocks.forEach(b => { const { c } = findCreature(b.bid); while (b.n > 0 && c.count - c.tapped - assignedFrom(c.id) < 0) b.n--; });
+  cb.blocks = cb.blocks.filter(b => b.n > 0);
+}
+const defenders = () => S.players.filter(f => f.id !== S.combat.att && pl(S.combat.att).creatures.some(c => S.combat.atk[c.id] === f.id));
+
+function mini(c, { cls = '', tags = '', small = false, a = '', attrs = '', tc = '' } = {}) {
+  const icons = [...kws(c), ...granted(c)].map(k => KW[k] && `<span class="ic" title="${esc(k)}">${KW[k]}</span>`).filter(Boolean).join('');
+  const img = c.imgs && c.imgs.length ? `background-image:url('${esc(c.imgs[0])}');` : '';
+  return `<div class="cmini ${small ? 'sm' : ''} ${cls}" data-id="${c.id}" ${a ? `data-a="${a}"` : ''} ${attrs} style="${img}${tc ? `--tc:${tc};` : ''}" title="${esc(c.name)}">
+    ${img ? '' : `<span class="cname">${esc(c.name)}</span>`}
+    <div class="ctag">${c.cmdr ? '<span class="ic cm" title="Commander">♛</span>' : ''}${tags}${icons}</div>
+    ${c.token ? `<span class="cqty">×${c.count}</span>` : ''}
+    <button class="cinfo" data-a="info" title="Details">ⓘ</button>
+    <div class="cpt ${ptClass(c)}">${pow(c)}/${tou(c)}</div></div>`;
+}
+
+function combatView() {
+  syncCombat();
+  const cb = S.combat; if (!cb) return '';
+  const ap = pl(cb.att), foes = S.players.filter(x => x.id !== ap.id);
+  const body = [cAttack, cBlock, cDamage][cb.step](cb, ap, foes);
+  const n = sum(ap.creatures.filter(c => cb.atk[c.id]), c => c.attacking);
+  const msg = cb.step === 0 ? `${n} attacking` : cb.step === 1 ? `${esc(pl(cb.defender).name)} is blocking` : 'Nothing has changed yet. Check it, then resolve.';
+  return `<div class="ctop"><div class="t"><h2>⚔ Combat · ${esc(ap.name)}</h2><button data-a="cLeave">✕ Leave combat</button></div>
+      <div class="csteps">${['Attack', 'Block', 'Damage'].map((s, i) =>
+        `<div class="cstep ${i === cb.step ? 'on' : i < cb.step ? 'done' : ''}"><b>${i + 1}</b>${s}${i < cb.step ? ' ✓' : ''}</div>`).join('')}</div></div>
+    ${body}
+    <div class="cbottom"><div class="in">
+      <button data-a="cBack" ${cb.step ? '' : 'disabled'}>◀ Back</button><span class="msg">${msg}</span>
+      <button class="primary" data-a="${cb.step === 2 ? 'cResolve' : 'cNext'}">${cb.step === 2 ? 'Resolve combat ✓' : 'Next ▶'}</button>
+    </div></div>`;
+}
+
+// 1. attack: pick an opponent, tap creatures to send them at that opponent
+function cAttack(cb, ap, foes) {
+  return `<p class="lead">Pick who you're attacking, then tap your creatures to send them. Tap again to call one back.</p>
+    <div class="pchips">${foes.map(f => `<button class="pchip ${cb.target === f.id ? 'sel' : ''}" style="--c:${f.color}" data-a="cTarget" data-p="${f.id}"><i></i>${esc(f.name)} <small>♥ ${f.life}</small></button>`).join('')}</div>
+    <div class="crow">${ap.creatures.map(c => {
+      const t = c.attacking && cb.atk[c.id] ? pl(cb.atk[c.id]) : null;
+      const can = c.attacking || c.count - c.tapped - (has(c, 'haste') ? 0 : c.sick) > 0;
+      const tags = (t ? `<span class="ic dot" style="--tc:${t.color}">→ ${esc(shortName(t.name))}</span>` : '') + (c.sick ? '<span class="ic" title="Summoning sick">💤</span>' : '');
+      return `<div class="cwrap" data-id="${c.id}">${mini(c, { cls: `${t ? 'attacking' : ''} ${can ? '' : 'cant'}`, tags, a: 'cAtk', tc: t ? t.color : '' })}
+        ${c.token && t ? pill('adj', 'attacking', `⚔ ${c.attacking} of ${c.count}`) : ''}</div>`;
+    }).join('') || '<div class="empty">No creatures to attack with.</div>'}</div>
+    <div class="chead">Attacking</div>
+    ${foes.map(f => { const list = ap.creatures.filter(c => c.attacking && cb.atk[c.id] === f.id);
+      return `<div class="cline" style="display:block"><span style="color:${f.color}">●</span> <b>${esc(f.name)}</b>: ${list.length
+        ? list.map(c => esc(c.name) + (c.token ? ' ×' + c.attacking : '')).join(', ') : '<span class="hint">nobody</span>'}</div>`; }).join('')}`;
+}
+
+// 2. block: each defender drags (or taps) their untapped creatures onto attackers
+function laneWarn(a, entries) {
+  const n = sum(entries, e => e.n);
+  if (has(a, 'menace') && n === 1 && !a.token) return 'Menace: needs two or more blockers';
+  return '';
+}
+function blockWarn(a, b) {
+  if (has(a, 'flying') && !has(b, 'flying') && !has(b, 'reach')) return "can't block a flyer";
+  return '';
+}
+function cBlock(cb, ap) {
+  const defs = defenders();
+  if (!defs.find(d => d.id === cb.defender)) cb.defender = defs[0].id;
+  const d = pl(cb.defender), incoming = ap.creatures.filter(c => c.attacking && cb.atk[c.id] === d.id);
+  const tray = d.creatures.filter(c => c.count - c.tapped > 0);
+  return `<p class="lead">Pass the phone to each defender. <b>Drag</b> one of your creatures onto the attacker it blocks; drag it off again to take the block back.
+      <small>Tapping the blocker, then the attacker, works too.</small></p>
+    <div class="pchips">${defs.map(f => `<button class="pchip ${cb.defender === f.id ? 'sel' : ''}" style="--c:${f.color}" data-a="cDef" data-p="${f.id}"><i></i>${esc(f.name)} blocks
+      <small>${sum(cb.blocks.filter(b => findCreature(b.bid).owner === f), b => b.n)} assigned</small></button>`).join('')}</div>
+    <div class="chead">Attacking ${esc(d.name)}</div>
+    <div class="lanes">${incoming.map(a => {
+      const entries = blocksOn(a.id), w = laneWarn(a, entries);
+      return `<div class="lane ${cb.picked ? 'target' : ''}" data-lane="${a.id}" data-a="cLane">
+        ${mini(a, { cls: 'attacking', tc: d.color, tags: a.token ? `<span class="ic atk">⚔${a.attacking}</span>` : '' })}
+        <div class="vs">${entries.length ? 'blocked by' : 'unblocked'}</div>
+        ${w ? `<div class="lwarn">⚠ ${w}</div>` : ''}
+        <div class="blk">${entries.length ? entries.map(e => { const b = findCreature(e.bid).c, bw = blockWarn(a, b);
+            return mini(b, { small: true, a: 'cUnblock', attrs: `data-from="${a.id}"`, tags: e.n > 1 ? `<span class="ic">×${e.n}</span>` : '' })
+              .replace(/<\/div>$/, `${bw ? `<div class="warn">⚠ ${bw}</div>` : ''}</div>`); }).join('')
+          : `<div class="none">${cb.picked ? 'Tap here to block' : 'No blockers'}</div>`}</div>
+      </div>`; }).join('')}</div>
+    <div class="chead">${esc(d.name)}'s untapped creatures</div>
+    <div class="ctray">${tray.length ? `<div class="crow">${tray.map(c => { const left = availBlock(c);
+        return mini(c, { small: true, a: 'cPick', cls: `${cb.picked === c.id ? 'picked' : ''} ${left ? '' : 'used'}`,
+          tags: c.token ? `<span class="ic" title="Can still block">${left} free</span>` : '' }); }).join('')}</div>`
+      : '<span class="hint">No untapped creatures to block with.</span>'}</div>
+    <p class="hint" style="margin-top:10px">Warnings don't stop you: some cards let creatures block things they normally couldn't.
+      A blocker on a token group blocks one token; to have several creatures block the same token, split it off first.</p>`;
+}
+
+// 3. damage: simulate first strike and regular damage, lethal damage in order, trample, deathtouch, lifelink, indestructible
+function simulate() {
+  const cb = S.combat, ap = pl(cb.att);
+  const unit = (c, owner) => ({ c, owner, P: Math.max(0, pow(c)), T: tou(c), dmg: c.token ? 0 : c.dmg || 0, taken: 0, dead: false, dt: false, log: [] });
+  const fights = [], units = [];
+  ap.creatures.filter(c => c.attacking && cb.atk[c.id]).forEach(c => {
+    const def = pl(cb.atk[c.id]);
+    let entries = blocksOn(c.id);
+    if (cb.order[c.id]) entries = cb.order[c.id].map(id => entries.find(e => e.bid === id)).filter(Boolean);
+    const bl = [];
+    entries.forEach(e => { const f = findCreature(e.bid); for (let i = 0; i < e.n; i++) bl.push(unit(f.c, f.owner)); });
+    units.push(...bl);
+    const k = c.token ? c.attacking : 1;
+    for (let i = 0; i < k; i++) {
+      // a single creature fights all its blockers; each token of a group fights one blocker (extras pile onto the last token)
+      const b = c.token ? (bl[i] ? [bl[i], ...(i === k - 1 ? bl.slice(k) : [])] : []) : bl;
+      const a = unit(c, ap);
+      units.push(a);
+      fights.push({ att: a, def, blockers: b, blocked: b.length > 0, src: c });
+    }
+  });
+  const life = {}, gain = {}, cmd = {};
+  const add = (o, id, n) => { o[id] = (o[id] || 0) + n; };
+  const first = u => has(u.c, 'first strike') || has(u.c, 'double strike');
+  const regular = u => !has(u.c, 'first strike') || has(u.c, 'double strike');
+  for (const isFirst of [true, false]) {
+    const deals = [];
+    const acts = u => !u.dead && (isFirst ? first(u) : regular(u));
+    fights.forEach(f => {
+      const a = f.att;
+      if (acts(a) && a.P > 0) {
+        if (!f.blocked) deals.push({ from: a, toP: f.def, amt: a.P });
+        else {
+          let left = a.P;
+          const alive = f.blockers.filter(b => !b.dead), dtA = has(a.c, 'deathtouch'), tr = has(a.c, 'trample');
+          alive.forEach((b, i) => {
+            const need = dtA ? (b.dt ? 0 : 1) : Math.max(0, b.T - b.dmg - b.taken);
+            const amt = i === alive.length - 1 && !tr ? left : Math.min(left, need);
+            if (amt > 0) { deals.push({ from: a, toU: b, amt }); left -= amt; }
+          });
+          if (left > 0 && tr) deals.push({ from: a, toP: f.def, amt: left });
+        }
+      }
+      f.blockers.forEach(b => { if (acts(b) && b.P > 0) deals.push({ from: b, toU: a, amt: b.P }); });
+    });
+    if (cb.fog) deals.length = 0;
+    deals.forEach(d => {
+      if (has(d.from.c, 'lifelink')) add(gain, d.from.owner.id, d.amt);
+      if (d.toP) { add(life, d.toP.id, d.amt); if (d.from.c.cmdr) add(cmd, d.toP.id, d.amt); d.from.log.push(`${d.amt} to ${d.toP.name}`); }
+      else { d.toU.taken += d.amt; if (has(d.from.c, 'deathtouch')) d.toU.dt = true; d.from.log.push(`${d.amt} to ${d.toU.c.name}`); }
+    });
+    units.forEach(u => {
+      if (!u.dead && (u.T <= 0 || (!has(u.c, 'indestructible') && (u.dmg + u.taken >= u.T || u.dt)))) u.dead = true;
+    });
+  }
+  return { fights, units, life, gain, cmd };
+}
+// combat-damage / attack / dies reminders the tracker can't resolve itself
+function triggerNotes(r) {
+  const notes = new Set();
+  r.fights.forEach(f => {
+    const hitPlayer = f.att.log.some(l => l.includes(f.def.name));
+    const sources = [f.src, ...attachedTo(f.src.id).map(x => x.pm)];
+    sources.forEach(s => { if (/\bwhenever [^.]*\battacks\b/i.test(s.oracle || '')) notes.add(`${s.name}: attack trigger`); });
+    if (hitPlayer) sources.forEach(s => { if (/deals combat damage to a player/i.test(s.oracle || '')) notes.add(`${s.name}: combat damage trigger`); });
+  });
+  r.units.filter(u => u.dead).forEach(u => { if (/\bwhen [^.]*\bdies\b/i.test(u.c.oracle || '')) notes.add(`${u.c.name}: dies trigger`); });
+  return [...notes];
+}
+function cDamage(cb) {
+  const r = simulate(), notes = triggerNotes(r);
+  const deadBy = {}, hurt = {};
+  r.units.forEach(u => {
+    if (u.dead) deadBy[u.c.id] = (deadBy[u.c.id] || 0) + 1;
+    else if (u.taken && !u.c.token) hurt[u.c.id] = u.taken + u.dmg;
+  });
+  const cards = S.players.map(p => {
+    const lost = r.life[p.id] || 0, gained = r.gain[p.id] || 0;
+    const dead = p.creatures.filter(c => deadBy[c.id]), sore = p.creatures.filter(c => hurt[c.id]);
+    if (!lost && !gained && !dead.length && !sore.length) return '';
+    const net = p.life - lost + gained;
+    return `<div class="ccard"><h4 style="--c:${p.color}"><i></i>${esc(p.name)}</h4>
+      ${lost || gained ? `<div class="cline ${net < p.life ? 'bad' : 'good'}">♥ <b>${p.life} → ${net}</b>${lost ? ` takes ${lost}` : ''}${gained ? ` · gains ${gained} (lifelink)` : ''}
+        ${r.cmd[p.id] ? ` · <b>${r.cmd[p.id]}</b> commander damage (now ${(p.cmdr[cb.att] || 0) + r.cmd[p.id]} of 21)` : ''}</div>` : ''}
+      ${dead.map(c => `<div class="cline bad">☠ <b>${esc(c.name)}</b>${c.token && deadBy[c.id] > 1 ? ` ×${deadBy[c.id]}` : ''} ${c.token && deadBy[c.id] > 1 ? 'die' : 'dies'}</div>`).join('')}
+      ${sore.map(c => `<div class="cline">🩸 <b>${esc(c.name)}</b> survives with ${hurt[c.id]} damage</div>`).join('')}
+    </div>`;
+  }).join('');
+  // one row per attacker; unblocked tokens of a group are folded together
+  const rows = [];
+  pl(cb.att).creatures.filter(c => c.attacking && cb.atk[c.id]).forEach(c => {
+    const fs = r.fights.filter(f => f.src === c), free = fs.filter(f => !f.blocked);
+    if (free.length) rows.push(`<div class="fight"><div class="who">${mini(c, { small: true, cls: 'attacking', tc: pl(cb.atk[c.id]).color })}</div>
+      <div class="what"><b>${esc(c.name)}${c.token ? ' ×' + free.length : ''}</b> ${cb.fog ? 'deals no damage (prevented)' : `deals ${sum(free, f => f.att.P)} to ${esc(free[0].def.name)}`}
+        ${c.cmdr && !cb.fog ? '<small>commander damage</small>' : ''}<small>unblocked</small></div></div>`);
+    fs.filter(f => f.blocked).forEach(f => {
+      const entries = blocksOn(c.id);
+      rows.push(`<div class="fight"><div class="who">${mini(c, { small: true, cls: `attacking ${f.att.dead ? 'dead' : ''}`, tc: f.def.color })}${
+          f.blockers.map(b => mini(b.c, { small: true, cls: b.dead ? 'dead' : '' })).join('')}</div>
+        <div class="what"><b>${esc(c.name)}</b> ${f.att.log.length ? 'deals ' + esc(f.att.log.join(', ')) : 'deals no damage'}
+          <small>takes ${f.att.taken}${f.att.dead ? ' and dies' : ''}</small>
+          ${!c.token && entries.length > 1 ? `<div class="order">Damage order: ${f.blockers.map(b => esc(b.c.name)).join(' → ')}
+            <button data-a="cOrder" data-aid="${c.id}">⇅ Change order</button></div>` : ''}</div></div>`);
+    });
+  });
+  return `<p class="lead">This is what will happen. Pump or shrink anything with ⓘ first and these numbers update.</p>
+    <div class="acts" style="margin:0 0 12px"><button data-a="cFog" class="${cb.fog ? 'on' : ''}">🌫 ${cb.fog ? 'All combat damage prevented' : 'Prevent all combat damage (Fog)'}</button></div>
+    <div class="csum">${cards || '<div class="ccard">Nothing happens.</div>'}</div>
+    ${notes.length ? `<div class="ccard" style="margin-top:10px"><h4 style="--c:var(--gold)"><i></i>Remember these triggers</h4>${notes.map(n => `<div class="cline">⚡ ${esc(n)}</div>`).join('')}</div>` : ''}
+    <div class="chead">Each fight</div>
+    <div class="ccard">${rows.join('') || '<span class="hint">No attackers.</span>'}</div>
+    <p class="hint" style="margin-top:12px">Resolve applies it: life totals, commander damage, dead creatures removed (equipment left unattached, auras gone),
+      and damage stays on survivors until end of turn.</p>`;
+}
+function resolveCombat() {
+  const cb = S.combat, ap = pl(cb.att), r = simulate();
+  S.players.forEach(p => {
+    p.life += (r.gain[p.id] || 0) - (r.life[p.id] || 0);
+    if (r.cmd[p.id]) p.cmdr[cb.att] = (p.cmdr[cb.att] || 0) + r.cmd[p.id];
+  });
+  const deaths = {}, marked = {};
+  r.units.forEach(u => {
+    if (u.dead) deaths[u.c.id] = (deaths[u.c.id] || 0) + 1;
+    else if (u.taken && !u.c.token) marked[u.c.id] = (marked[u.c.id] || 0) + u.taken;
+  });
+  let died = 0;
+  S.players.forEach(p => {
+    p.creatures = p.creatures.filter(c => {
+      if (marked[c.id]) c.dmg = (c.dmg || 0) + marked[c.id];
+      const n = deaths[c.id];
+      if (!n) return true;
+      died += n;
+      if (c.token && c.count > n) {
+        // the tokens that died were attacking/tapped ones first when they were attackers
+        const atkDead = p === ap ? Math.min(n, c.attacking) : 0;
+        c.count -= n; c.attacking -= atkDead; if (!has(c, 'vigilance')) c.tapped -= atkDead;
+        adj(c, 'count', 0);
+        return true;
+      }
+      dropAttachments(c);
+      return false;
+    });
+  });
+  ap.creatures.forEach(c => { c.attacking = 0; });
+  const hits = S.players.filter(p => r.life[p.id]).map(p => `${p.name} −${r.life[p.id]}`);
+  S.combat = null;
+  setTimeout(() => toast(`Combat done${hits.length ? ': ' + hits.join(', ') : ''}${died ? ` · ${died} creature${died > 1 ? 's' : ''} died` : ''}`), 50);
+}
+
+// drag a blocker onto an attacker (Arena-style)
+let drag = null, suppressClick = false;
+document.addEventListener('pointerdown', e => {
+  if (!S.combat || S.combat.step !== 1 || e.button > 0 || e.target.closest('.cinfo')) return;
+  const mc = e.target.closest('.ctray .cmini, .lane .blk .cmini'); if (!mc) return;
+  const f = findCreature(mc.dataset.id); if (!f.c || f.owner.id !== S.combat.defender) return;
+  const r = mc.getBoundingClientRect();
+  drag = { id: f.c.id, from: mc.dataset.from || null, el: mc, x0: e.clientX, y0: e.clientY, sx: r.left + r.width / 2, sy: r.top + r.height / 2, w: r.width, moved: false };
+  try { mc.setPointerCapture(e.pointerId); } catch {}
+});
+document.addEventListener('pointermove', e => {
+  if (!drag) return;
+  if (!drag.moved) {
+    if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 6) return;
+    drag.moved = true; S.combat.picked = null;
+    drag.ghost = drag.el.cloneNode(true);
+    drag.ghost.classList.add('dragghost'); drag.ghost.classList.remove('picked', 'used');
+    drag.ghost.style.width = drag.w + 'px';
+    document.body.appendChild(drag.ghost);
+    drag.el.classList.add('lifted');
+    $('arrow').classList.add('show');
+  }
+  drag.ghost.style.left = e.clientX + 'px'; drag.ghost.style.top = e.clientY + 'px';
+  const line = $('arrowLine');
+  line.setAttribute('x1', drag.sx); line.setAttribute('y1', drag.sy); line.setAttribute('x2', e.clientX); line.setAttribute('y2', e.clientY);
+  const under = document.elementFromPoint(e.clientX, e.clientY), lane = under && under.closest('[data-lane]');
+  document.querySelectorAll('.lane.over').forEach(l => { if (l !== lane) l.classList.remove('over'); });
+  if (lane) lane.classList.add('over');
+  drag.lane = lane ? lane.dataset.lane : null;
+});
+function endDrag(cancel) {
+  if (!drag) return;
+  const d = drag; drag = null;
+  if (!d.moved) return;
+  d.ghost.remove(); $('arrow').classList.remove('show');
+  suppressClick = true; setTimeout(() => { suppressClick = false; }, 0);
+  if (!cancel && d.lane !== d.from) {
+    if (d.from) unassignBlock(d.id, d.from);
+    if (d.lane && !assignBlock(d.id, d.lane)) toast('That creature has no free blockers left.');
+  }
+  render();
+}
+document.addEventListener('pointerup', () => endDrag(false));
+document.addEventListener('pointercancel', () => endDrag(true));
+
 // ---------- events ----------
 document.addEventListener('click', e => {
+  if (suppressClick) return; // the click that ends a drag
   const el = e.target.closest('[data-a]');
   if (!el || el.type === 'checkbox' || el.tagName === 'SELECT') return;
   if (el.closest('dialog') && !el.closest('#sheet')) return;
@@ -1082,11 +1502,54 @@ document.addEventListener('change', e => {
 });
 function act(el) {
   const a = el.dataset.a, d = parseInt(el.dataset.d), p = S.players[S.view];
-  const tileEl = el.closest('.tile');
-  const id = tileEl ? tileEl.dataset.id : el.closest('#sheet') ? sheetId : null;
-  const c = id && p.creatures.find(x => x.id === id);
+  // the creature this is about: a board tile, a card in combat, or the open ⓘ panel; it may be on any player's board
+  const holder = el.closest('[data-id]');
+  const id = holder ? holder.dataset.id : el.closest('#sheet') ? sheetId : null;
+  const found = id ? findCreature(id) : {};
+  const c = found.c, cp = found.owner || p;
   const before = c && c.tapped >= c.count;
+  const cb = S.combat;
   switch (a) {
+    // ----- combat -----
+    case 'cStart': {
+      const foes = S.players.filter(x => x !== p);
+      S.combat = { att: p.id, step: 0, target: foes[0].id, atk: {}, blocks: [], order: {}, defender: null, fog: false, picked: null };
+      window.scrollTo(0, 0);
+      break;
+    }
+    case 'cLeave': S.combat = null; break;
+    case 'cTarget': cb.target = el.dataset.p; break;
+    case 'cAtk': {
+      // already attacking someone else: send it at the chosen opponent instead
+      if (c.attacking && cb.atk[c.id] && cb.atk[c.id] !== cb.target) { cb.atk[c.id] = cb.target; break; }
+      const r = strike(c);
+      if (r !== true) return toast(r);
+      if (c.attacking) cb.atk[c.id] = cb.target; else delete cb.atk[c.id];
+      break;
+    }
+    case 'cNext':
+      if (cb.step === 0 && !defenders().length) return toast('Choose at least one attacker first.');
+      cb.step++; cb.picked = null; window.scrollTo(0, 0);
+      break;
+    case 'cBack': cb.step = Math.max(0, cb.step - 1); cb.picked = null; break;
+    case 'cDef': cb.defender = el.dataset.p; cb.picked = null; break;
+    case 'cPick':
+      if (cp.id !== cb.defender) break;
+      if (availBlock(c) <= 0) { toast('Drag it off its attacker first, or pick another blocker.'); break; }
+      cb.picked = cb.picked === c.id ? null : c.id;
+      break;
+    case 'cLane': if (cb.picked) { assignBlock(cb.picked, el.dataset.lane); cb.picked = null; } break;
+    case 'cUnblock': unassignBlock(c.id, el.dataset.from); break;
+    case 'cOrder': {
+      const ids = (cb.order[el.dataset.aid] || blocksOn(el.dataset.aid).map(b => b.bid)).slice();
+      ids.push(ids.shift());
+      cb.order[el.dataset.aid] = ids;
+      break;
+    }
+    case 'cFog': cb.fog = !cb.fog; break;
+    case 'cResolve': resolveCombat(); break;
+    case 'cmdrToggle': c.cmdr = !c.cmdr; break;
+    // ----- board -----
     case 'strike': {
       const r = strike(c);
       if (r !== true) {
@@ -1145,18 +1608,20 @@ function act(el) {
       const n = { ...c, id: uid(), count: 1, tapped: 0, sick: 0, attacking: 0, rows: [] };
       if (c.count - c.tapped - c.sick <= 0) { if (c.sick > 0) { n.sick = 1; c.sick--; } else { n.tapped = 1; c.tapped--; } }
       c.count--; adj(c, 'count', 0);
-      p.creatures.splice(p.creatures.indexOf(c) + 1, 0, n); break;
+      cp.creatures.splice(cp.creatures.indexOf(c) + 1, 0, n); break;
     }
     case 'tap': c.tapped = c.tapped ? 0 : 1; break;
     case 'sick': c.sick = c.sick ? 0 : 1; break;
-    case 'del': p.creatures = p.creatures.filter(x => x !== c); dropAttachments(c); sheet.close(); break;
+    case 'del': cp.creatures = cp.creatures.filter(x => x !== c); dropAttachments(c); sheet.close(); break;
   }
   render();
   if (c) animTap(c.id, before, c.tapped >= c.count);
 }
 $('nextTurn').onclick = () => {
   // end of turn: temporary effects and attack flags clear everywhere; new active player untaps and loses sickness
-  S.players.forEach(p => { p.eot = []; p.creatures.forEach(c => { c.tp = 0; c.tt = 0; c.attacking = 0; }); });
+  // damage wears off too
+  S.combat = null;
+  S.players.forEach(p => { p.eot = []; p.creatures.forEach(c => { c.tp = 0; c.tt = 0; c.attacking = 0; c.dmg = 0; }); });
   S.active = (S.active + 1) % S.players.length;
   S.view = S.active;
   S.players[S.active].creatures.forEach(c => { c.tapped = 0; c.sick = 0; });

@@ -4,4 +4,4 @@ deploy.ps1
 .vercel/
 
 # Design mockup, not part of the site
-mockup-card-focus.html
+mockup-*.html
