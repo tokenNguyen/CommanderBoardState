@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Commander Board Tracker</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#efe6d2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#090c12" media="(prefers-color-scheme: dark)">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="Board Tracker">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -1642,6 +1648,12 @@ $('nextTurn').onclick = () => {
 $('addPlayer').onclick = () => { S.players.push(newPlayer(S.players.length)); S.view = S.players.length - 1; render(); };
 $('reset').onclick = () => { if (confirm('Reset everything?')) { S = fresh(); render(); } };
 render();
+
+// Register the service worker that makes this installable as an app (see sw.js).
+// Opening index.html straight from disk (file://) can't use one, so this only runs on the website.
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+}
 </script>
 </body>
 </html>

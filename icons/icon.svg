@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Source for the PNG app icons: an untapped card with a tapped card turned sideways across it, in the Deck Builder's gold-on-dark style -->
+  <rect width="512" height="512" rx="96" fill="#0e1016"/>
+  <g transform="translate(-10 14)" stroke="#d9a94a" stroke-width="14" stroke-linejoin="round">
+    <rect x="96" y="76" width="200" height="280" rx="22" fill="#262d3d"/>
+    <path d="M196 116 L210 162 L256 176 L210 190 L196 236 L182 190 L136 176 L182 162 Z" fill="#d9a94a" stroke-width="6"/>
+    <rect x="196" y="252" width="240" height="160" rx="22" fill="#1b2130"/>
+  </g>
+</svg>
