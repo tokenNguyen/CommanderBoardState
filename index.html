@@ -96,6 +96,18 @@
   .counts { cursor:pointer; padding:10px 12px; }
   .counts .head { margin-bottom:6px; }
   .counts:hover { border-color:var(--gold); }
+  /* counts: small stacked tiles (name, then −/+, then a note) so nothing gets squeezed at any width */
+  /* 8 tiles: two rows of 4, or four rows of 2 on a phone (never one left on its own) */
+  .ctiles { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+  @media (min-width:640px) { .ctiles { grid-template-columns:repeat(4,minmax(0,1fr)); } }
+  .ctile { display:flex; flex-direction:column; gap:8px; background:var(--panel2); border:1px solid var(--line);
+           border-left:4px solid var(--gold); border-radius:12px; padding:10px 12px; min-width:0; }
+  .ct-h { display:flex; align-items:center; gap:7px; font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ct-i { flex:none; width:20px; text-align:center; }
+  .ct-c { display:flex; align-items:center; justify-content:space-between; gap:6px; }
+  .ct-c button { width:38px; min-width:38px; padding:0; font-size:18px; font-weight:700; }
+  .ct-c .n { font-family:var(--display); font-size:26px; font-weight:800; line-height:1; text-align:center; flex:1; }
+  .ct-s { color:var(--muted); font-size:12px; line-height:1.3; }
   .cprev { display:flex; flex-wrap:wrap; gap:6px 14px; font-size:14px; color:var(--muted); }
   .cprev b { font-family:var(--display); color:var(--text); font-size:16px; }
   .cmdpanel .chev { color:var(--muted); }
@@ -965,10 +977,12 @@ const rowChips = (src, label) => (src.rows || []).map((r, i) => {
 // counts for "for each" effects and "*" creatures: some kept by hand, artifacts/enchantments counted from the board
 function countsPanel(p) {
   const tracked = k => countOf(p, k) - (k === 'artifact' ? p.res.xart + p.res.treasure + p.res.clue + p.res.food : p.res.xench);
-  const tileH = (k, icon, label, val, sub) => `<div class="cmdtile" style="--acc:var(--gold)">
-      <div class="r"><span class="nm">${icon} ${label}${sub ? `<br><small class="hint">${sub}</small>` : ''}</span>
-        <button data-a="res" data-k="${k}" data-d="-1">−</button><span class="n">${val}</span>
-        <button data-a="res" data-k="${k}" data-d="1">+</button></div></div>`;
+  // each tile: name on top, −/+ on its own line, an optional note underneath
+  const tileH = (k, icon, label, val, sub) => `<div class="ctile">
+      <div class="ct-h"><span class="ct-i" aria-hidden="true">${icon}</span>${label}</div>
+      <div class="ct-c"><button data-a="res" data-k="${k}" data-d="-1" aria-label="${label} minus one">−</button><span class="n">${val}</span>
+        <button data-a="res" data-k="${k}" data-d="1" aria-label="${label} plus one">+</button></div>
+      ${sub ? `<small class="ct-s">${sub}</small>` : ''}</div>`;
   // collapsed: a heading and a one-line preview; tap it to open the −/+ controls
   if (!S.countsOpen) {
     const prev = [['🏔', 'Lands', p.res.land], ['⚙', 'Artifacts', countOf(p, 'artifact')], ['✨', 'Enchantments', countOf(p, 'enchantment')],
@@ -981,17 +995,18 @@ function countsPanel(p) {
   }
   return `<section class="cmdpanel">
     <div class="head" data-a="countsToggle" style="cursor:pointer"><h3>Counts</h3><span class="chev">▴</span></div>
-    <div class="cmd">
+    <div class="ctiles">
       ${tileH('land', '🏔', 'Lands', p.res.land)}
-      ${tileH('hand', '🃏', 'Cards in hand', p.res.hand)}
+      ${tileH('hand', '🃏', 'Hand', p.res.hand)}
       ${tileH('grave', '🪦', 'Graveyard', p.res.grave)}
-      ${tileH('xart', '⚙', 'Artifacts', countOf(p, 'artifact'), `${tracked('artifact')} on the board + ${p.res.xart} untracked`)}
-      ${tileH('xench', '✨', 'Enchantments', countOf(p, 'enchantment'), `${tracked('enchantment')} on the board + ${p.res.xench} untracked`)}
+      ${tileH('xart', '⚙', 'Artifacts', countOf(p, 'artifact'), [`${tracked('artifact')} on the board`,
+        p.res.treasure + p.res.clue + p.res.food && `${p.res.treasure + p.res.clue + p.res.food} Treasure/Clue/Food`, `${p.res.xart} extra`].filter(Boolean).join(' · '))}
+      ${tileH('xench', '✨', 'Enchantments', countOf(p, 'enchantment'), `${tracked('enchantment')} on the board · ${p.res.xench} extra`)}
       ${tileH('treasure', '💰', 'Treasure', p.res.treasure)}
       ${tileH('clue', '🔍', 'Clue', p.res.clue)}
       ${tileH('food', '🍗', 'Food', p.res.food)}
     </div>
-    <div class="opt-row">Artifacts and enchantments you've added are counted automatically; use −/+ there for ones you haven't added (mana rocks, say). Treasure, Clue and Food count as artifacts.</div>
+    <div class="opt-row">Artifacts and enchantments you've added are counted automatically; −/+ there adds extra ones you haven't added (mana rocks, say). Treasure, Clue and Food count as artifacts.</div>
   </section>`;
 }
 
